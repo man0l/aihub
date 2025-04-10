@@ -437,7 +437,7 @@ app.post('/api/upload/collections', authenticateUser, async (req, res) => {
   }
 });
 
-// YouTube processing route
+// YouTube route
 app.post('/api/upload/youtube', authenticateUser, async (req, res) => {
   const { sources, options } = req.body;
 
@@ -463,7 +463,7 @@ app.post('/api/upload/youtube', authenticateUser, async (req, res) => {
       
       console.log('Creating document for video:', title);
       
-      // Create initial document record
+      // Create initial document record with queued status
       const { data: document, error: createError } = await req.supabaseClient
         .from('documents')
         .insert({
@@ -472,7 +472,7 @@ app.post('/api/upload/youtube', authenticateUser, async (req, res) => {
           source_url: `https://youtube.com/watch?v=${videoId}`,
           user_id: req.user.id,
           collection_id: options.collectionId || null,
-          processing_status: 'processing'
+          processing_status: 'queued'
         })
         .select()
         .single();
@@ -484,102 +484,34 @@ app.post('/api/upload/youtube', authenticateUser, async (req, res) => {
 
       console.log('Document created, ID:', document.id);
       
-      try {
-        // Get transcript
-        console.log('Getting transcript for video:', videoId);
-        const transcript = await getVideoTranscript(videoId);
-        
-        if (!transcript) {
-          throw new Error('Failed to get video transcript');
-        }
-        
-        console.log('Transcript retrieved, generating summaries');
-        
-        // Generate summaries
-        const summaries = {};
-        
-        // Generate short form summary if enabled
-        if (options.generateShortForm !== false) {
-          console.log('Generating short form summary');
-          const shortSummary = await generateSummary(transcript, 'short');
-          let shortAudioUrl = null;
-          
-          if (options.generateAudio !== false) {
-            console.log('Generating audio for short summary');
-            shortAudioUrl = await generateAudio(shortSummary, req.supabaseClient);
-          }
-          
-          summaries.shortForm = {
-            text: shortSummary,
-            audioUrl: shortAudioUrl
-          };
-        }
-        
-        // Generate long form summary if enabled
-        if (options.generateLongForm !== false) {
-          console.log('Generating long form summary');
-          const longSummary = await generateSummary(transcript, 'long');
-          let longAudioUrl = null;
-          
-          if (options.generateAudio !== false) {
-            console.log('Generating audio for long summary');
-            longAudioUrl = await generateAudio(longSummary, req.supabaseClient);
-          }
-          
-          summaries.longForm = {
-            text: longSummary,
-            audioUrl: longAudioUrl
-          };
-        }
-        
-        // Update document with processed content
-        console.log('Updating document with processed content');
-        await req.supabaseClient
-          .from('documents')
-          .update({
-            transcription: transcript,
-            short_summary: summaries.shortForm?.text,
-            short_summary_audio: summaries.shortForm?.audioUrl,
-            long_summary: summaries.longForm?.text,
-            long_summary_audio: summaries.longForm?.audioUrl,
-            processing_status: 'completed',
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', document.id);
-          
-        console.log('Document successfully processed');
-        
-        results.push({
-          id: document.id,
-          title,
-          status: 'completed'
-        });
-      } catch (processingError) {
-        console.error('Processing error:', processingError);
-        
-        // Update document with error status
-        await req.supabaseClient
-          .from('documents')
-          .update({
-            processing_status: 'error',
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', document.id);
-          
-        results.push({
-          id: document.id,
-          title,
-          status: 'error',
-          error: processingError.message
-        });
+      // Enqueue the video for processing using the database function
+      console.log('Enqueueing video for processing:', videoId);
+      const { data, error } = await req.supabaseClient.rpc('enqueue_video_processing', {
+        p_video_id: videoId,
+        p_user_id: req.user.id,
+        p_source_url: `https://youtube.com/watch?v=${videoId}`
+      });
+
+      if (error) {
+        console.error('Error enqueueing video:', error);
+        throw error;
       }
+
+      console.log('Video successfully enqueued for processing, job ID:', data);
+
+      results.push({
+        id: document.id,
+        title,
+        status: 'queued',
+        message: 'Video has been queued for processing'
+      });
     }
 
     res.json(results);
   } catch (error) {
     console.error('YouTube processing failed:', error);
     res.status(500).json({
-      message: 'Failed to process YouTube sources',
+      message: 'Failed to queue YouTube sources for processing',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }

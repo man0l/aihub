@@ -221,7 +221,9 @@ export default function Upload() {
             const results = response.data;
             const sourceStatus = results[0]?.status === 'error'
               ? `Error: ${results[0].error}`
-              : 'Completed';
+              : results[0]?.status === 'queued'
+                ? 'Queued for processing'
+                : 'Completed';
 
             setProcessingStatus(prev => ({
               ...prev,

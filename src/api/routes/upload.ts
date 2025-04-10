@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { processWebsites, processFiles, processYouTubeSources } from '../../lib/processing';
-import { validateYouTubeUrl } from '../../lib/youtube';
+import { validateYouTubeUrl, extractVideoIds } from '../../lib/youtube';
 import { VideoSource, ProcessingOptions } from '../../lib/types';
 import { supabase } from '../../lib/supabase';
 import multer from 'multer';
@@ -76,11 +76,52 @@ router.post('/youtube', authenticateUser, async (req: AuthenticatedRequest, res:
   }
 
   try {
-    const results = await processYouTubeSources(sources, req.user.id, options);
+    const results = [];
+
+    for (const source of sources) {
+      // Extract video IDs from the source
+      const videoIds = await extractVideoIds(source);
+
+      for (const videoId of videoIds) {
+        // Create a document record with pending status
+        const { data: document, error: docError } = await supabase
+          .from('documents')
+          .insert({
+            title: `YouTube Video: ${videoId}`,
+            content_type: 'youtube',
+            source_url: `https://youtube.com/watch?v=${videoId}`,
+            user_id: req.user.id,
+            collection_id: options.collectionId,
+            processing_status: 'queued'
+          })
+          .select()
+          .single();
+
+        if (docError) throw docError;
+
+        // Enqueue the video for processing using the database function
+        const { data, error } = await supabase.rpc('enqueue_video_processing', {
+          p_video_id: videoId,
+          p_user_id: req.user.id,
+          p_source_url: `https://youtube.com/watch?v=${videoId}`,
+          p_collection_id: options.collectionId || null
+        });
+
+        if (error) throw error;
+
+        results.push({
+          id: document.id,
+          title: document.title,
+          status: 'queued',
+          message: 'Video has been queued for processing'
+        });
+      }
+    }
+
     res.json(results);
   } catch (error) {
     res.status(500).json({
-      message: 'Failed to process YouTube sources',
+      message: 'Failed to queue YouTube sources for processing',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }

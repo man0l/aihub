@@ -17,6 +17,7 @@
 - [x] Fallback content when transcription fails
 - [x] Processing status tracking and updates
 - [x] Implement server-side YouTube processing
+- [x] Implement background processing with Supabase Queues
 
 ### Pending 🔄
 - [ ] Add tagging system for YouTube content
@@ -67,6 +68,8 @@
 - [x] Authentication middleware
 - [x] Row-level security in Supabase
 - [x] Basic application layout and navigation
+- [x] Background job queue with PGMQ for asynchronous processing
+- [x] Upgraded AWS SDK from v2 to v3 for improved performance and modularity
 
 ### Pending 🔄
 - [ ] Production deployment configuration
