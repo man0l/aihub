@@ -19,6 +19,11 @@ const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+// Get S3 bucket names from environment variables
+const PROJECT_PREFIX = process.env.PROJECT_PREFIX;
+const RAW_MEDIA_BUCKET = process.env.RAW_MEDIA_BUCKET || `${PROJECT_PREFIX}-raw-media-input`;
+const PROCESSED_TRANSCRIPTS_BUCKET = process.env.PROCESSED_TRANSCRIPTS_BUCKET || `${PROJECT_PREFIX}-processed-transcripts-output`;
+
 // Initialize S3 client with v3 SDK
 const s3Client = new S3Client({
   region: process.env.AWS_REGION || 'us-east-1',
@@ -238,12 +243,18 @@ async function downloadYouTubeVideo(videoId) {
 }
 
 // Function to upload file to S3
-async function uploadToS3(filePath, key) {
+async function uploadToS3(filePath, key, userId, type) {
   const fileContent = fs.readFileSync(filePath);
   
+  // Determine the appropriate bucket based on the file type
+  const bucket = RAW_MEDIA_BUCKET;
+  
+  // Build the object key with user-specific path
+  const objectKey = `users/${userId}/${type}/${path.basename(key)}`;
+  
   const params = {
-    Bucket: process.env.AWS_S3_BUCKET,
-    Key: key,
+    Bucket: bucket,
+    Key: objectKey,
     Body: fileContent
   };
   
@@ -285,9 +296,9 @@ async function processVideoJob(job) {
       console.log(`No transcription available for ${videoId}, downloading video...`);
       const { videoPath, audioPath } = await downloadYouTubeVideo(videoId);
       
-      // Upload to S3
-      videoUrl = await uploadToS3(videoPath, `videos/${userId}/${videoId}.mp4`);
-      audioUrl = await uploadToS3(audioPath, `audio/${userId}/${videoId}.mp3`);
+      // Upload to S3 with proper path structure
+      videoUrl = await uploadToS3(videoPath, `${videoId}.mp4`, userId, 'videos');
+      audioUrl = await uploadToS3(audioPath, `${videoId}.mp3`, userId, 'audio');
       
       // Clean up temp files
       fs.unlinkSync(videoPath);
