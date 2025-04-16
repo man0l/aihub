@@ -167,15 +167,68 @@ export class StorageService {
    * @returns The corresponding MIME type
    */
   private getContentType(extension: string): string {
+    // Normalize extension - ensure it starts with a dot and is lowercase
+    const normalizedExt = extension.startsWith('.')
+      ? extension.toLowerCase()
+      : `.${extension.toLowerCase()}`;
+
     const contentTypes: Record<string, string> = {
+      // Audio
       '.mp3': 'audio/mpeg',
+      '.wav': 'audio/wav',
+      '.ogg': 'audio/ogg',
+      '.m4a': 'audio/mp4',
+      '.aac': 'audio/aac',
+      '.flac': 'audio/flac',
+      
+      // Video
       '.mp4': 'video/mp4',
-      '.json': 'application/json',
+      '.webm': 'video/webm',
+      '.avi': 'video/x-msvideo',
+      '.mov': 'video/quicktime',
+      '.wmv': 'video/x-ms-wmv',
+      
+      // Text
       '.txt': 'text/plain',
+      '.html': 'text/html',
+      '.htm': 'text/html',
+      '.css': 'text/css',
+      '.csv': 'text/csv',
+      
+      // Documents
+      '.pdf': 'application/pdf',
+      '.doc': 'application/msword',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.xls': 'application/vnd.ms-excel',
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.ppt': 'application/vnd.ms-powerpoint',
+      '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      
+      // Images
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.gif': 'image/gif',
+      '.svg': 'image/svg+xml',
+      '.webp': 'image/webp',
+      
+      // Subtitles
       '.srt': 'text/plain',
       '.vtt': 'text/vtt',
+      
+      // Data
+      '.json': 'application/json',
+      '.xml': 'application/xml',
+      '.yaml': 'application/yaml',
+      '.yml': 'application/yaml',
+      
+      // Archives
+      '.zip': 'application/zip',
+      '.tar': 'application/x-tar',
+      '.gz': 'application/gzip',
+      '.7z': 'application/x-7z-compressed'
     };
 
-    return contentTypes[extension.toLowerCase()] || 'application/octet-stream';
+    return contentTypes[normalizedExt] || 'application/octet-stream';
   }
 } 

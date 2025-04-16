@@ -167,10 +167,31 @@ export default function Upload() {
   const validateYouTubeUrl = (url: string): boolean => {
     try {
       const videoUrl = new URL(url);
-      return videoUrl.hostname === 'youtu.be' || 
-             videoUrl.hostname === 'www.youtube.com' || 
-             videoUrl.hostname === 'youtube.com';
-    } catch {
+      const isYouTubeDomain = 
+        videoUrl.hostname === 'youtu.be' || 
+        videoUrl.hostname === 'www.youtube.com' || 
+        videoUrl.hostname === 'youtube.com';
+        
+      if (!isYouTubeDomain) {
+        console.log('Invalid YouTube domain:', videoUrl.hostname);
+        return false;
+      }
+      
+      // Additional validation for proper YouTube URL patterns
+      if (videoUrl.hostname === 'youtu.be') {
+        // Short URL format (youtu.be/VIDEO_ID)
+        return videoUrl.pathname.length > 1; // Should have a path after the slash
+      } else {
+        // Regular youtube.com format
+        const videoId = videoUrl.searchParams.get('v');
+        if (!videoId) {
+          console.log('Missing video ID in YouTube URL');
+          return false;
+        }
+        return true;
+      }
+    } catch (error) {
+      console.error('Error validating YouTube URL:', error);
       return false;
     }
   };
@@ -213,10 +234,17 @@ export default function Upload() {
           }));
 
           try {
+            console.log('Sending YouTube processing request:', { 
+              sources: [source], 
+              options: processingOptions 
+            });
+            
             const response = await axios.post('/api/upload/youtube', 
               { sources: [source], options: processingOptions },
               { headers: { Authorization: `Bearer ${user.access_token}` } }
             );
+            
+            console.log('YouTube processing response:', response.data);
             
             const results = response.data;
             const sourceStatus = results[0]?.status === 'error'
@@ -242,10 +270,26 @@ export default function Upload() {
               [source.url]: 'Error'
             }));
 
-            if (axios.isAxiosError(sourceError) && sourceError.response?.status === 401) {
-              setError({ message: 'Authentication failed. Please log in again.' });
-              break;
+            if (axios.isAxiosError(sourceError)) {
+              console.error('YouTube API error details:', {
+                status: sourceError.response?.status,
+                statusText: sourceError.response?.statusText,
+                data: sourceError.response?.data,
+                url: sourceError.config?.url,
+                method: sourceError.config?.method
+              });
+              
+              if (sourceError.response?.status === 401) {
+                setError({ message: 'Authentication failed. Please log in again.' });
+                break;
+              } else {
+                setError({
+                  message: 'Failed to process video',
+                  details: sourceError.response?.data?.error || sourceError.message
+                });
+              }
             } else {
+              console.error('Non-Axios error:', sourceError);
               setError({
                 message: 'Failed to process video',
                 details: sourceError instanceof Error ? sourceError.message : 'Unknown error'

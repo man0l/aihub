@@ -28,3 +28,5 @@ temp/
 *.disabled
 *.bak
 *.orig
+src/api/coverage/
+supabase/

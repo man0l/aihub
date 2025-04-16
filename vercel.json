@@ -9,12 +9,35 @@
   "routes": [
     {
       "src": "/api/youtube/audio/([^/]+)",
-      "dest": "/api/youtube/audio/[videoId].ts",
-      "headers": {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type"
-      }
+      "dest": "/api/youtube/audio/[videoId].ts"
+    },
+    {
+      "src": "/api/youtube/metadata/([^/]+)",
+      "dest": "/api/youtube/metadata/[videoId].ts" 
+    },
+    {
+      "src": "/api/youtube/transcript/([^/]+)",
+      "dest": "/api/youtube/transcript/[videoId].ts"
+    },
+    {
+      "src": "/api/upload/collections",
+      "dest": "/api/upload/collections.ts"
+    },
+    {
+      "src": "/api/upload/youtube",
+      "dest": "/api/upload/youtube.ts"
+    },
+    {
+      "src": "/api/upload/websites",
+      "dest": "/api/upload/websites.ts"
+    },
+    {
+      "src": "/api/upload/files",
+      "dest": "/api/upload/files.ts"
+    },
+    {
+      "src": "/api/upload/webhooks",
+      "dest": "/api/upload/webhooks.ts"
     }
   ]
 }

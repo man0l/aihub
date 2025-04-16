@@ -1,17 +1,19 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "outDir": "dist/server",
-    "target": "ES2022",
-    "allowJs": true,
+    "outDir": "dist/api",
+    "rootDir": ".",
+    "baseUrl": ".",
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "declaration": false,
     "strict": true,
-    "noImplicitAny": false
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "isolatedModules": true
   },
-  "include": ["server.ts", "src/api/**/*.ts"],
+  "include": ["api/**/*.ts"],
   "exclude": ["node_modules", "**/*.test.ts"]
 } 

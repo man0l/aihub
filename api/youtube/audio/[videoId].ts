@@ -1,16 +1,32 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import ytdl from 'ytdl-core';
 
+/**
+ * YouTube audio extraction endpoint
+ * GET /api/youtube/audio/[videoId]
+ */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  
+  // Handle preflight OPTIONS request
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  // Only handle GET requests
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  
   const { videoId } = req.query;
-
-  // Always set JSON content type
-  res.setHeader('Content-Type', 'application/json');
-
+  
   if (!videoId || typeof videoId !== 'string') {
     return res.status(400).json({ error: 'Video ID is required' });
   }
-
+  
   try {
     // Validate video ID format
     if (!ytdl.validateID(videoId)) {
@@ -61,7 +77,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error) {
     console.error('Error getting audio URL:', error);
 
-    if (error instanceof ytdl.YTDLError) {
+    // Check for YouTube error message patterns instead of relying on the class
+    if (error instanceof Error && 
+        (error.message.includes('Video unavailable') || 
+         error.message.includes('private video') ||
+         error.message.includes('does not exist'))) {
       return res.status(404).json({ 
         error: 'Video not found or is not accessible',
         details: error.message

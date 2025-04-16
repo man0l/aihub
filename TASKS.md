@@ -1,4 +1,69 @@
-# AI Knowledge Hub - Implementation Tasks
+# AI Knowledge Hub - Tasks
+
+## High Priority
+
+- [x] Fix remaining TypeScript errors in server code
+  - [x] Properly type the results array in src/api/routes/upload.ts
+  - [x] Resolve issues with import.meta.env in supabase.ts
+  - [x] Fix dynamic import errors in server.ts
+
+- [x] Implement missing API endpoints
+  - [x] Complete website content extraction API
+  - [x] Finalize file upload and processing endpoints
+  - [x] Add authentication middleware
+
+- [ ] Worker enhancements
+  - [x] Implement PGMQ-based website processing queue
+  - [ ] Implement retry mechanism for failed jobs
+  - [ ] Add monitoring for worker health
+  - [ ] Create logging service for better debugging
+
+## Medium Priority
+
+- [ ] Testing improvements
+  - [ ] Add more unit tests for API endpoints
+  - [ ] Implement integration tests for worker components
+  - [ ] Set up end-to-end tests for critical user flows
+
+- [ ] Documentation
+  - [ ] Create API documentation with Swagger/OpenAPI
+  - [ ] Document worker architecture and components
+  - [ ] Provide examples for common use cases
+
+- [ ] Performance optimizations
+  - [ ] Add caching for frequently accessed data
+  - [ ] Optimize database queries
+  - [ ] Implement pagination for large result sets
+
+## Low Priority
+
+- [ ] Developer experience
+  - [ ] Set up pre-commit hooks for linting and formatting
+  - [ ] Create development containers for consistent environments
+  - [ ] Improve build pipeline and CI/CD workflows
+
+- [ ] Frontend enhancements
+  - [ ] Implement responsive design improvements
+  - [ ] Add offline capabilities
+  - [ ] Enhance accessibility
+
+- [ ] Infrastructure
+  - [ ] Set up monitoring and alerting
+  - [ ] Implement automated backups
+  - [ ] Create disaster recovery plan
+
+## Completed
+
+- [x] Refactor server code to TypeScript
+- [x] Set up Vercel serverless functions
+- [x] Update TypeScript configuration
+- [x] Refactor worker implementation
+- [x] Create comprehensive documentation
+- [x] Add proper MIME type detection for file uploads
+- [x] Implement direct-to-S3 file upload with pre-signed URLs
+- [x] Enhance website content extraction API
+- [x] Add webhook endpoint for file upload completion
+- [x] Implement PGMQ-based website processing
 
 ## YouTube Processing Features
 
@@ -52,6 +117,9 @@
 - [x] File processing infrastructure (PDF, DOC, DOCX, TXT)
 - [x] Website content processing
 - [x] Document database schema and storage
+- [x] File upload with pre-signed URLs for S3
+- [x] Enhanced website extraction with metadata
+- [x] Asynchronous website processing with PGMQ
 
 ### Pending 🔄
 - [ ] Full implementation of file processing backend
@@ -85,4 +153,7 @@
 - The UI components for uploading, processing, and viewing content are implemented.
 - The profile management system allows users to view and edit their profile information, including their full name.
 - A navigation bar with sign-out functionality has been implemented to improve user experience and provide easy access to sign-out capabilities.
-- The server-side YouTube processing now handles video identification, transcription with Whisper API, summary generation with GPT-4, and audio generation with TTS. 
+- The server-side YouTube processing now handles video identification, transcription with Whisper API, summary generation with GPT-4, and audio generation with TTS.
+- File upload now uses pre-signed URLs for direct-to-S3 uploads, improving performance and reliability.
+- Website content extraction has been enhanced with metadata extraction and proper error handling.
+- Both video and website processing now use separate PGMQ queues for asynchronous background processing. 
