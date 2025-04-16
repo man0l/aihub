@@ -29,4 +29,5 @@ temp/
 *.bak
 *.orig
 src/api/coverage/
-supabase/
+supabase/.temp
+supabase/migrations/archive

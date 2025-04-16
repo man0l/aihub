@@ -338,10 +338,11 @@ describe('DatabaseService', () => {
   test('should create document from transcription', async () => {
     // Setup
     // Create a mock that properly handles chaining for multiple .eq() calls
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const single = jest.fn().mockResolvedValue({
       data: { id: 'test-doc-id', title: 'Test Document' },
       error: null
-    });
+    } as never);
     
     // Create a chainable eq function that returns an object with all the methods
     const eq = jest.fn().mockImplementation(() => ({
