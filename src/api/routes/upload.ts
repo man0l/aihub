@@ -135,7 +135,8 @@ router.post('/youtube', authenticateUser, async (req: Request, res: Response): P
           source_url: `https://youtube.com/watch?v=${videoId}`,
           user_id: req.user.id,
           collection_id: options?.collectionId || null,
-          processing_status: 'queued'
+          processing_status: 'queued',
+          video_id: videoId
         })
         .select()
         .single();

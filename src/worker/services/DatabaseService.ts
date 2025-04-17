@@ -54,13 +54,16 @@ export class DatabaseService {
     status: 'processing' | 'completed' | 'error' | 'transcribed',
     data: Record<string, any> = {}
   ) {
+    // Ensure we don't accidentally overwrite video_id if it's not explicitly provided
+    const updateData = {
+      processing_status: status,
+      updated_at: new Date().toISOString(),
+      ...data  // Allow explicit video_id updates if needed
+    };
+
     return this.supabase
       .from('documents')
-      .update({
-        processing_status: status,
-        ...data,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', documentId);
   }
   
@@ -95,6 +98,7 @@ export class DatabaseService {
           original_content: transcription,
           transcription: transcription,
           processing_status: 'transcribed',
+          video_id: videoId,
           updated_at: new Date().toISOString()
         })
         .eq('id', existingDoc.id)
@@ -119,7 +123,8 @@ export class DatabaseService {
           source_url: sourceUrl,
           transcription: transcription,
           user_id: userId,
-          processing_status: 'transcribed'
+          processing_status: 'transcribed',
+          video_id: videoId
         })
         .select()
         .single();
