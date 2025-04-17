@@ -46,8 +46,8 @@ export class ConfigService {
     
     // S3 buckets
     this.projectPrefix = process.env.PROJECT_PREFIX || '';
-    this.rawMediaBucket = process.env.RAW_MEDIA_BUCKET || '';
-    this.processedTranscriptsBucket = process.env.PROCESSED_TRANSCRIPTS_BUCKET || '';
+    this.rawMediaBucket = `${this.projectPrefix}-${process.env.RAW_MEDIA_BUCKET}`;
+    this.processedTranscriptsBucket = `${this.projectPrefix}-${process.env.PROCESSED_TRANSCRIPTS_BUCKET}`;
     
     // Default to raw media bucket for backward compatibility
     this.s3Bucket = this.rawMediaBucket;

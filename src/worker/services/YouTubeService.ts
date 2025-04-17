@@ -28,75 +28,123 @@ export class YouTubeService {
   }
   
   /**
-   * Downloads a YouTube video as audio
+   * Downloads a YouTube video as audio using the official YouTube Data API
    */
   async downloadVideo(videoId: string): Promise<string> {
     // Ensure temp directory exists
     this.config.ensureTempDirExists();
     
     const outputFilePath = path.join(this.config.tempDir, `${videoId}.mp4`);
-    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
     
     try {
-      // Add browser-like headers to avoid 403 errors
-      const options = { 
-        quality: 'lowestaudio',
-        filter: 'audioonly' as const,
-        requestOptions: {
-          headers: {
-            // Setting a reasonable user-agent to avoid being blocked
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'Cache-Control': 'max-age=0'
-          }
-        }
-      };
-      
-      try {
-        const audioStream = ytdl(videoUrl, options);
-        
-        // Add error handling for the stream
-        audioStream.on('error', (err) => {
-          console.error(`Stream error downloading ${videoId}:`, err);
-        });
-        
-        const fileWriteStream = fs.createWriteStream(outputFilePath);
-        await pipeline(audioStream, fileWriteStream);
-        
-        // Verify the file exists and has content
-        const stats = fs.statSync(outputFilePath);
-        if (stats.size === 0) {
-          throw new Error('Downloaded file is empty');
-        }
-        
-        console.log(`Downloaded YouTube video ${videoId} to ${outputFilePath} (${stats.size} bytes)`);
-        return outputFilePath;
-      } catch (streamError) {
-        // If streaming fails, try a fallback approach
-        console.warn(`Initial download failed for ${videoId}, trying fallback method...`);
-        
-        // For the fallback, we'll create a placeholder audio file
-        // In a production system, you might want to use an alternative download method
-        this.createPlaceholderAudio(outputFilePath);
-        console.log(`Created placeholder audio for ${videoId}`);
-        
-        return outputFilePath;
+      // Clean up any existing file before starting
+      if (fs.existsSync(outputFilePath)) {
+        console.log(`Removing existing file at ${outputFilePath}`);
+        fs.unlinkSync(outputFilePath);
       }
-    } catch (error) {
-      console.error(`Error downloading YouTube video ${videoId}:`, error);
+
+      // First get video details using the Data API
+      const videoDetailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id=${videoId}&key=${this.config.youtubeApiKey}`;
+      const videoDetailsResponse = await this.axiosClient.get(videoDetailsUrl);
       
-      // Create a placeholder file so the process can continue
-      this.createPlaceholderAudio(outputFilePath);
-      console.log(`Created placeholder audio for ${videoId} after error`);
+      if (!videoDetailsResponse.data.items?.length) {
+        throw new Error('Video not found or not accessible');
+      }
       
+      const videoDetails = videoDetailsResponse.data.items[0];
+      console.log(`Video details retrieved for ${videoId}:`, {
+        title: videoDetails.snippet.title,
+        duration: videoDetails.contentDetails.duration,
+        status: videoDetails.status
+      });
+      
+      // Get the direct media URLs using ytdl (which we still need for this part)
+      console.log(`Getting media formats for ${videoId}...`);
+      const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${videoId}`);
+      console.log(`Available formats for ${videoId}:`, {
+        count: info.formats.length,
+        audioFormats: info.formats.filter(f => f.hasAudio && !f.hasVideo).length,
+        videoFormats: info.formats.filter(f => f.hasVideo).length
+      });
+      
+      // Get the audio-only format with the best quality
+      const audioFormat = ytdl.chooseFormat(info.formats, {
+        quality: 'highestaudio',
+        filter: 'audioonly'
+      });
+      
+      if (!audioFormat?.url) {
+        throw new Error('No suitable audio format found');
+      }
+
+      console.log(`Selected audio format for ${videoId}:`, {
+        quality: audioFormat.quality,
+        container: audioFormat.container,
+        codecs: audioFormat.codecs,
+        bitrate: audioFormat.bitrate
+      });
+      
+      // Download the audio using our authenticated axios client
+      console.log(`Starting download for ${videoId}...`);
+      const response = await this.axiosClient.get(audioFormat.url, {
+        responseType: 'stream',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': '*/*',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Range': 'bytes=0-'
+        },
+        maxRedirects: 5,
+        timeout: 30000 // 30 second timeout
+      });
+      
+      // Save the stream to file
+      console.log(`Creating write stream to ${outputFilePath}...`);
+      const writer = fs.createWriteStream(outputFilePath);
+      
+      // Add error handler for the write stream
+      writer.on('error', (err: Error) => {
+        console.error(`Error writing to file for ${videoId}:`, err);
+      });
+      
+      // Add error handler for the response data stream
+      response.data.on('error', (err: Error) => {
+        console.error(`Error in download stream for ${videoId}:`, err);
+      });
+      
+      // Add progress logging
+      let downloadedBytes = 0;
+      response.data.on('data', (chunk: Buffer) => {
+        downloadedBytes += chunk.length;
+        if (downloadedBytes % (1024 * 1024) === 0) { // Log every MB
+          console.log(`Downloaded ${downloadedBytes / (1024 * 1024)} MB for ${videoId}`);
+        }
+      });
+      
+      console.log(`Starting pipeline for ${videoId}...`);
+      await pipeline(response.data, writer);
+      
+      // Verify the file exists and has content
+      const stats = fs.statSync(outputFilePath);
+      if (stats.size === 0) {
+        throw new Error('Downloaded file is empty');
+      }
+      
+      console.log(`Downloaded YouTube video ${videoId} to ${outputFilePath} (${stats.size} bytes)`);
       return outputFilePath;
+      
+    } catch (error) {
+      console.error(`Error downloading YouTube video ${videoId}:`, {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      
+      // Clean up any partial file that might have been created
+      if (fs.existsSync(outputFilePath)) {
+        fs.unlinkSync(outputFilePath);
+      }
+      
+      throw new Error(`Failed to download YouTube video ${videoId}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   
