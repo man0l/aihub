@@ -17,6 +17,64 @@ export async function extractVideoId(url: string): Promise<string | null> {
 }
 
 /**
+ * Extracts the playlist ID from a YouTube URL
+ */
+export function extractPlaylistId(url: string): string | null {
+  try {
+    const videoUrl = new URL(url);
+    const playlistId = videoUrl.searchParams.get('list');
+    if (playlistId?.startsWith('PL')) {
+      return playlistId;
+    }
+    return null;
+  } catch (error) {
+    console.error('Error extracting playlist ID:', error);
+    return null;
+  }
+}
+
+/**
+ * Gets all video IDs from a YouTube playlist
+ */
+export async function getPlaylistVideos(playlistId: string): Promise<Array<{id: string, title: string}>> {
+  try {
+    const videos: Array<{id: string, title: string}> = [];
+    let nextPageToken: string | undefined = undefined;
+    
+    do {
+      const response = await axios.get(
+        `https://www.googleapis.com/youtube/v3/playlistItems`, {
+          params: {
+            part: 'snippet',
+            maxResults: 50,
+            playlistId: playlistId,
+            key: process.env.VITE_YOUTUBE_API_KEY,
+            pageToken: nextPageToken
+          }
+        }
+      );
+
+      if (!response.data.items) {
+        break;
+      }
+
+      const items = response.data.items.map((item: any) => ({
+        id: item.snippet.resourceId.videoId,
+        title: item.snippet.title
+      }));
+      
+      videos.push(...items);
+      nextPageToken = response.data.nextPageToken;
+    } while (nextPageToken);
+
+    return videos;
+  } catch (error) {
+    console.error('Error fetching playlist videos:', error);
+    throw new Error(`Failed to fetch playlist videos: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+/**
  * Gets video metadata from the YouTube API
  */
 export async function getVideoMetadata(videoId: string) {

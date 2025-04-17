@@ -176,20 +176,33 @@ export default function Upload() {
         console.log('Invalid YouTube domain:', videoUrl.hostname);
         return false;
       }
+
+      // Extract playlist ID and video ID
+      const playlistId = videoUrl.searchParams.get('list');
+      const videoId = videoUrl.searchParams.get('v');
+      const isPlaylistUrl = videoUrl.pathname === '/playlist';
       
-      // Additional validation for proper YouTube URL patterns
+      console.log('URL validation details:', {
+        playlistId,
+        videoId,
+        isPlaylistUrl,
+        pathname: videoUrl.pathname
+      });
+
+      // Handle different URL patterns
       if (videoUrl.hostname === 'youtu.be') {
         // Short URL format (youtu.be/VIDEO_ID)
-        return videoUrl.pathname.length > 1; // Should have a path after the slash
-      } else {
-        // Regular youtube.com format
-        const videoId = videoUrl.searchParams.get('v');
-        if (!videoId) {
-          console.log('Missing video ID in YouTube URL');
-          return false;
-        }
+        return videoUrl.pathname.length > 1;
+      } else if (isPlaylistUrl && playlistId) {
+        // Direct playlist URL
+        return true;
+      } else if (playlistId || videoId) {
+        // Video URL (with optional playlist)
         return true;
       }
+      
+      console.log('URL validation failed: No valid video or playlist ID found');
+      return false;
     } catch (error) {
       console.error('Error validating YouTube URL:', error);
       return false;

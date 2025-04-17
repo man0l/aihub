@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { authenticateUser } from '../middleware/auth.js';
-import { extractVideoId, getVideoMetadata } from '../utils/youtube.js';
+import { extractVideoId, extractPlaylistId, getPlaylistVideos, getVideoMetadata } from '../utils/youtube.js';
 import { generateSummary, generateAudio } from '../utils/openai.js';
 
 const router = Router();
@@ -114,63 +114,94 @@ router.post('/youtube', authenticateUser, async (req: Request, res: Response): P
     for (const source of sources) {
       console.log('Processing YouTube source:', source.url);
       
-      // Extract video ID
-      const videoId = await extractVideoId(source.url);
-      if (!videoId) {
-        throw new Error('Invalid YouTube URL');
+      let videosToProcess: Array<{id: string, title?: string}> = [];
+      
+      if (source.type === 'playlist') {
+        // Handle playlist
+        const playlistId = extractPlaylistId(source.url);
+        if (!playlistId) {
+          throw new Error('Invalid YouTube playlist URL');
+        }
+        
+        console.log('Fetching videos from playlist:', playlistId);
+        videosToProcess = await getPlaylistVideos(playlistId);
+        console.log(`Found ${videosToProcess.length} videos in playlist`);
+      } else {
+        // Handle single video
+        const videoId = await extractVideoId(source.url);
+        if (!videoId) {
+          throw new Error('Invalid YouTube URL');
+        }
+        videosToProcess = [{ id: videoId }];
       }
       
-      // Get video metadata
-      const videoMetadata = await getVideoMetadata(videoId);
-      const title = `${videoMetadata.title} - ${videoMetadata.channelTitle}`;
-      
-      console.log('Creating document for video:', title);
-      
-      // Create initial document record with queued status
-      const { data: document, error: createError } = await req.supabaseClient
-        .from('documents')
-        .insert({
-          title,
-          content_type: 'youtube',
-          source_url: `https://youtube.com/watch?v=${videoId}`,
-          user_id: req.user.id,
-          collection_id: options?.collectionId || null,
-          processing_status: 'queued',
-          video_id: videoId
-        })
-        .select()
-        .single();
+      // Process each video
+      for (const video of videosToProcess) {
+        try {
+          // Get video metadata if not already provided by playlist
+          const videoMetadata = video.title ? 
+            { title: video.title } : 
+            await getVideoMetadata(video.id);
+            
+          const title = video.title || `${videoMetadata.title} - ${videoMetadata.channelTitle}`;
+          
+          console.log('Creating document for video:', title);
+          
+          // Create initial document record with queued status
+          const { data: document, error: createError } = await req.supabaseClient
+            .from('documents')
+            .insert({
+              title,
+              content_type: 'youtube',
+              source_url: `https://youtube.com/watch?v=${video.id}`,
+              user_id: req.user.id,
+              collection_id: options?.collectionId || null,
+              processing_status: 'queued',
+              video_id: video.id
+            })
+            .select()
+            .single();
 
-      if (createError) {
-        console.error('Error creating document:', createError);
-        throw createError;
+          if (createError) {
+            console.error('Error creating document:', createError);
+            throw createError;
+          }
+
+          console.log('Document created, ID:', document.id);
+          
+          // Enqueue the video for processing
+          console.log('Enqueueing video for processing:', video.id);
+          const { data, error } = await req.supabaseClient.rpc('enqueue_video_processing', {
+            p_video_id: video.id,
+            p_user_id: req.user.id,
+            p_source_url: `https://youtube.com/watch?v=${video.id}`,
+            p_collection_id: options?.collectionId || null,
+            p_document_id: document.id
+          });
+
+          if (error) {
+            console.error('Error enqueueing video:', error);
+            throw error;
+          }
+
+          console.log('Video successfully enqueued for processing, job ID:', data);
+
+          results.push({
+            id: document.id,
+            title,
+            status: 'queued',
+            message: 'Video has been queued for processing'
+          });
+        } catch (videoError) {
+          console.error('Error processing video:', video.id, videoError);
+          results.push({
+            id: video.id,
+            title: video.title || video.id,
+            status: 'error',
+            message: videoError instanceof Error ? videoError.message : 'Unknown error'
+          });
+        }
       }
-
-      console.log('Document created, ID:', document.id);
-      
-      // Enqueue the video for processing using the database function
-      console.log('Enqueueing video for processing:', videoId);
-      const { data, error } = await req.supabaseClient.rpc('enqueue_video_processing', {
-        p_video_id: videoId,
-        p_user_id: req.user.id,
-        p_source_url: `https://youtube.com/watch?v=${videoId}`,
-        p_collection_id: options?.collectionId || null,
-        p_document_id: document.id
-      });
-
-      if (error) {
-        console.error('Error enqueueing video:', error);
-        throw error;
-      }
-
-      console.log('Video successfully enqueued for processing, job ID:', data);
-
-      results.push({
-        id: document.id,
-        title,
-        status: 'queued',
-        message: 'Video has been queued for processing'
-      });
     }
 
     res.json(results);
