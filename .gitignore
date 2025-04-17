@@ -31,3 +31,4 @@ temp/
 src/api/coverage/
 supabase/.temp
 supabase/migrations/archive
+venv

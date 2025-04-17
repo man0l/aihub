@@ -2,18 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
 import { AxiosInstance } from 'axios';
-import ytdl from '@distube/ytdl-core';
 import { ConfigService } from './ConfigService.js';
-
-interface VideoInfo {
-  title: string;
-  author: {
-    name: string;
-  };
-  videoId: string;
-  videoUrl: string;
-  thumbnailUrl: string;
-}
+import { VideoDownloaderFactory, DownloaderType } from './adapters/VideoDownloaderFactory.js';
+import { VideoFormat, VideoInfo } from './interfaces/VideoServices.js';
 
 /**
  * YouTube Service - Responsible for downloading and processing YouTube videos
@@ -21,14 +12,29 @@ interface VideoInfo {
 export class YouTubeService {
   private config: ConfigService;
   private axiosClient: AxiosInstance;
+  private downloaderFactory: VideoDownloaderFactory;
+  private downloaderType: DownloaderType;
   
-  constructor(configService: ConfigService, axiosClient: AxiosInstance) {
+  constructor(
+    configService: ConfigService, 
+    axiosClient: AxiosInstance,
+    downloaderType: DownloaderType = 'ytdl'
+  ) {
     this.config = configService;
     this.axiosClient = axiosClient;
+    this.downloaderFactory = VideoDownloaderFactory.getInstance();
+    this.downloaderType = downloaderType;
+  }
+
+  /**
+   * Sets the downloader type to use
+   */
+  setDownloaderType(type: DownloaderType): void {
+    this.downloaderType = type;
   }
   
   /**
-   * Downloads a YouTube video as audio using the official YouTube Data API
+   * Downloads a YouTube video as audio using the configured downloader
    */
   async downloadVideo(videoId: string): Promise<string> {
     // Ensure temp directory exists
@@ -58,45 +64,34 @@ export class YouTubeService {
         status: videoDetails.status
       });
       
-      // Get the direct media URLs using ytdl (which we still need for this part)
+      const downloader = this.downloaderFactory.getDownloader(this.downloaderType);
+      const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      
+      // Get available formats
       console.log(`Getting media formats for ${videoId}...`);
-      const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${videoId}`);
+      const formats = await downloader.getFormats(videoUrl);
       console.log(`Available formats for ${videoId}:`, {
-        count: info.formats.length,
-        audioFormats: info.formats.filter(f => f.hasAudio && !f.hasVideo).length,
-        videoFormats: info.formats.filter(f => f.hasVideo).length
+        count: formats.length,
+        audioFormats: formats.filter(f => !f.videoOnly).length,
+        videoFormats: formats.filter(f => !f.audioOnly).length
       });
       
-      // Get the audio-only format with the best quality
-      const audioFormat = ytdl.chooseFormat(info.formats, {
-        quality: 'highestaudio',
-        filter: 'audioonly'
-      });
-      
-      if (!audioFormat?.url) {
+      // Get the best audio format
+      const audioFormat = downloader.getBestAudioFormat(formats);
+      if (!audioFormat) {
         throw new Error('No suitable audio format found');
       }
 
       console.log(`Selected audio format for ${videoId}:`, {
         quality: audioFormat.quality,
         container: audioFormat.container,
-        codecs: audioFormat.codecs,
-        bitrate: audioFormat.bitrate
+        acodec: audioFormat.acodec,
+        abr: audioFormat.abr
       });
       
-      // Download the audio using our authenticated axios client
+      // Download the audio
       console.log(`Starting download for ${videoId}...`);
-      const response = await this.axiosClient.get(audioFormat.url, {
-        responseType: 'stream',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': '*/*',
-          'Accept-Language': 'en-US,en;q=0.5',
-          'Range': 'bytes=0-'
-        },
-        maxRedirects: 5,
-        timeout: 30000 // 30 second timeout
-      });
+      const audioStream = await downloader.downloadAudio(videoUrl, audioFormat);
       
       // Save the stream to file
       console.log(`Creating write stream to ${outputFilePath}...`);
@@ -107,14 +102,9 @@ export class YouTubeService {
         console.error(`Error writing to file for ${videoId}:`, err);
       });
       
-      // Add error handler for the response data stream
-      response.data.on('error', (err: Error) => {
-        console.error(`Error in download stream for ${videoId}:`, err);
-      });
-      
       // Add progress logging
       let downloadedBytes = 0;
-      response.data.on('data', (chunk: Buffer) => {
+      audioStream.on('data', (chunk: Buffer) => {
         downloadedBytes += chunk.length;
         if (downloadedBytes % (1024 * 1024) === 0) { // Log every MB
           console.log(`Downloaded ${downloadedBytes / (1024 * 1024)} MB for ${videoId}`);
@@ -122,7 +112,7 @@ export class YouTubeService {
       });
       
       console.log(`Starting pipeline for ${videoId}...`);
-      await pipeline(response.data, writer);
+      await pipeline(audioStream, writer);
       
       // Verify the file exists and has content
       const stats = fs.statSync(outputFilePath);
@@ -170,17 +160,16 @@ export class YouTubeService {
    */
   async getVideoInfo(videoId: string): Promise<VideoInfo> {
     try {
-      const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-      const info = await ytdl.getInfo(videoUrl);
-      
+      const downloader = this.downloaderFactory.getDownloader(this.downloaderType);
+      const info = await downloader.getInfo(`https://www.youtube.com/watch?v=${videoId}`);
       return {
-        title: info.videoDetails.title,
-        author: {
-          name: info.videoDetails.author.name
-        },
-        videoId: info.videoDetails.videoId,
-        videoUrl: videoUrl,
-        thumbnailUrl: info.videoDetails.thumbnails[0]?.url || ''
+        id: videoId,
+        title: info.title,
+        formats: info.formats,
+        author: info.author,
+        videoId: info.videoId,
+        videoUrl: info.videoUrl,
+        thumbnailUrl: info.thumbnailUrl
       };
     } catch (error) {
       console.error(`Error getting info for YouTube video ${videoId}:`, error);
@@ -193,16 +182,15 @@ export class YouTubeService {
    */
   async fetchTranscription(videoId: string): Promise<string | null> {
     try {
-      // For YouTube Data API v3, we need to use proper authentication
-      // Note: Getting captions requires OAuth 2.0 with specific scopes, not just an API key
-      // As a workaround, we'll use ytdl-core to get captions directly
-      
       const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
       try {
-        const info = await ytdl.getInfo(videoUrl);
+        const downloader = this.downloaderFactory.getDownloader(this.downloaderType);
+        const info = await downloader.getInfo(videoUrl);
         
-        // Get available captions/tracks
-        const tracks = info.player_response?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+        // Get available captions/tracks from the API response
+        const videoDetailsUrl = `https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId=${videoId}&key=${this.config.youtubeApiKey}`;
+        const captionsResponse = await this.axiosClient.get(videoDetailsUrl);
+        const tracks = captionsResponse.data.items || [];
         
         if (tracks.length === 0) {
           console.log(`No caption tracks found for video ${videoId}`);
@@ -210,29 +198,28 @@ export class YouTubeService {
         }
         
         // Prefer English captions, fall back to first available
-        const englishTrack = tracks.find(track => 
-          track.languageCode === 'en' || 
-          track.languageCode === 'en-US' || 
-          track.name?.simpleText?.toLowerCase().includes('english')
+        const englishTrack = tracks.find((track: any) => 
+          track.snippet.language === 'en' || 
+          track.snippet.language === 'en-US' || 
+          track.snippet.trackName?.toLowerCase().includes('english')
         );
         
         const captionTrack = englishTrack || tracks[0];
         
-        if (!captionTrack?.baseUrl) {
-          console.log(`No valid caption URL found for video ${videoId}`);
+        if (!captionTrack?.id) {
+          console.log(`No valid caption track found for video ${videoId}`);
           return null;
         }
         
-        // Fetch the actual captions XML
-        const captionResponse = await this.axiosClient.get(captionTrack.baseUrl);
+        // Fetch the actual captions
+        const captionUrl = `https://www.googleapis.com/youtube/v3/captions/${captionTrack.id}?key=${this.config.youtubeApiKey}`;
+        const captionResponse = await this.axiosClient.get(captionUrl);
         
         if (!captionResponse.data) {
           return null;
         }
         
-        // Parse the XML and extract text
-        // For now, we'll just return the raw data
-        // A proper implementation would parse the XML
+        // Parse the captions
         return this.parseCaptionData(captionResponse.data);
       } catch (infoError) {
         console.error(`Error getting caption info for ${videoId}:`, infoError);

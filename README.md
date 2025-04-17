@@ -132,3 +132,9 @@ npm run worker
 # Run tests
 npm test
 ```
+
+## Make sure you have installed yt-dlp:
+
+```
+pip install yt-dlp
+```

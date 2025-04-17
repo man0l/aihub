@@ -99,7 +99,7 @@ class VideoProcessor {
           
           // At this point, we would normally send the audio for transcription
           // For now, we'll create a placeholder transcription from the video metadata
-          transcription = `Title: ${videoInfo.title}\nChannel: ${videoInfo.author.name}\n\nThis is a placeholder transcription as the automatic transcription process was unable to extract the speech content.`;
+          transcription = `Title: ${videoInfo.title}\nChannel: ${videoInfo.author?.name || 'Unknown'}\n\nThis is a placeholder transcription as the automatic transcription process was unable to extract the speech content.`;
           
         } catch (downloadError) {
           console.error(`Error downloading video ${videoId}:`, downloadError);
@@ -346,7 +346,7 @@ class Application {
     
     // Create services
     this.storageService = new StorageService(this.configService);
-    this.youtubeService = new YouTubeService(this.configService, axiosClient);
+    this.youtubeService = new YouTubeService(this.configService, axiosClient, 'yt-dlp');
     this.databaseService = new DatabaseService(this.supabaseClient);
     
     // Create processors
