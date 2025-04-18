@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { FolderOpen, Search, Filter, Play, Pause, FileText, Youtube, Globe, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { FolderOpen, Search, Filter, Play, Pause, FileText, Youtube, Globe, ChevronDown, ChevronUp, Trash2, X } from 'lucide-react';
 import { Database } from '../lib/database.types';
 import { cn } from '../lib/utils';
 
@@ -31,6 +31,9 @@ export default function Library() {
   const [playingAudio, setPlayingAudio] = useState<string | null>(null);
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [isNewCollectionModalOpen, setIsNewCollectionModalOpen] = useState(false);
+  const [newCollectionName, setNewCollectionName] = useState('');
+  const [isCreatingCollection, setIsCreatingCollection] = useState(false);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -136,15 +139,97 @@ export default function Library() {
     return matchesSearch && matchesCollection;
   });
 
+  const createCollection = async () => {
+    if (!user?.id || !newCollectionName.trim()) return;
+
+    setIsCreatingCollection(true);
+    try {
+      const { data, error } = await supabase
+        .from('collections')
+        .insert({
+          name: newCollectionName.trim(),
+          user_id: user.id,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setCollections(prev => [...prev, data]);
+      setNewCollectionName('');
+      setIsNewCollectionModalOpen(false);
+    } catch (error) {
+      console.error('Error creating collection:', error);
+      alert('Failed to create collection. Please try again.');
+    } finally {
+      setIsCreatingCollection(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-semibold text-gray-900">My Library</h1>
-        <button className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700">
+        <button 
+          onClick={() => setIsNewCollectionModalOpen(true)}
+          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700"
+        >
           <FolderOpen className="h-5 w-5 mr-2" />
           New Collection
         </button>
       </div>
+
+      {/* New Collection Modal */}
+      {isNewCollectionModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-medium text-gray-900">Create New Collection</h2>
+              <button
+                onClick={() => setIsNewCollectionModalOpen(false)}
+                className="text-gray-400 hover:text-gray-500"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="collection-name" className="block text-sm font-medium text-gray-700">
+                  Collection Name
+                </label>
+                <input
+                  type="text"
+                  id="collection-name"
+                  value={newCollectionName}
+                  onChange={(e) => setNewCollectionName(e.target.value)}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                  placeholder="Enter collection name"
+                />
+              </div>
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => setIsNewCollectionModalOpen(false)}
+                  className="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={createCollection}
+                  disabled={!newCollectionName.trim() || isCreatingCollection}
+                  className={cn(
+                    "inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-purple-600",
+                    (!newCollectionName.trim() || isCreatingCollection) 
+                      ? "opacity-50 cursor-not-allowed" 
+                      : "hover:bg-purple-700"
+                  )}
+                >
+                  {isCreatingCollection ? 'Creating...' : 'Create Collection'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex space-x-4">
         <div className="flex-1 relative">
