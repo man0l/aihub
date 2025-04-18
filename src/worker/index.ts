@@ -47,13 +47,20 @@ export { WebsiteProcessor } from './services/WebsiteProcessor.js';
 // Initialize environment variables
 dotenv.config();
 
-// Type definitions for queued jobs
+interface ProcessingOptions {
+  generateShortForm?: boolean;
+  generateLongForm?: boolean;
+  generateAudio?: boolean;
+  collectionId?: string;
+}
+
 interface VideoJob {
   videoId: string;
   userId: string;
   sourceUrl: string;
   collectionId?: string;
   documentId?: string;
+  processingOptions?: ProcessingOptions;
 }
 
 interface WebsiteJob {
@@ -61,6 +68,15 @@ interface WebsiteJob {
   document_id: string;
   user_id: string;
   collection_id?: string;
+  processingOptions?: ProcessingOptions;
+}
+
+interface WebsiteProcessorOptions {
+  url: string;
+  document_id: string;
+  user_id: string;
+  collection_id?: string;
+  processingOptions?: ProcessingOptions;
 }
 
 interface DocumentJob {
@@ -68,6 +84,7 @@ interface DocumentJob {
   userId: string;
   sourceUrl: string;
   collectionId?: string;
+  processingOptions?: ProcessingOptions;
 }
 
 /**
@@ -122,10 +139,11 @@ class DocumentProcessor {
    * Process a document job from the queue
    */
   async processDocument(job: DocumentJob) {
-    const { documentId, userId, sourceUrl, collectionId } = job;
+    const { documentId, userId, sourceUrl, collectionId, processingOptions } = job;
     
     console.log(`Processing document ${documentId} for user ${userId}`);
     console.log(`Source URL: ${sourceUrl}`);
+    console.log('Processing options:', processingOptions);
     
     try {
       // Update document status to processing
@@ -164,10 +182,13 @@ class DocumentProcessor {
         const extractedText = await this.extractDocumentContent(tempFilePath);
         console.log(`Successfully extracted text from document ${documentId}`);
 
-        // Schedule summary generation events
+        // Schedule summary generation events with processing options
         if (userId && extractedText) {
           console.log(`Scheduling summary generation for document ${documentId}`);
-          await this.scheduleSummaryGeneration(documentId, userId, extractedText);
+          await this.scheduleSummaryGeneration(documentId, userId, extractedText, {
+            ...processingOptions,
+            collectionId
+          });
         }
 
         // Upload extracted text to S3
@@ -242,34 +263,46 @@ class DocumentProcessor {
 
   /**
    * Schedules both short and long summary generation events for document content
-   * @param documentId The document ID
-   * @param userId The user ID
-   * @param extractedText The extracted text content from the document
    */
-  private async scheduleSummaryGeneration(documentId: string, userId: string, extractedText: string): Promise<void> {
+  private async scheduleSummaryGeneration(
+    documentId: string, 
+    userId: string, 
+    extractedText: string,
+    processingOptions?: ProcessingOptions
+  ): Promise<void> {
     try {
       console.log(`Creating event scheduler for document ${documentId} with userId ${userId}`);
       const eventScheduler = EventSchedulerFactory.create();
 
-      // Schedule short summary immediately
-      console.log(`Scheduling short summary for document ${documentId}`);
-      await eventScheduler.scheduleSummaryGeneration({
-        userId: userId,
-        documentId: documentId, // Use documentId instead of videoId
-        transcriptText: extractedText,
-        summaryType: 'short' as SummaryType
-      });
+      // Schedule short summary only if explicitly enabled
+      if (processingOptions?.generateShortForm === true) {
+        console.log(`Scheduling short summary for document ${documentId}`);
+        await eventScheduler.scheduleSummaryGeneration({
+          userId: userId,
+          documentId: documentId,
+          transcriptText: extractedText,
+          summaryType: 'short',
+          processingOptions
+        });
+      } else {
+        console.log('Skipping short summary generation as it is not explicitly enabled');
+      }
 
-      // Schedule long summary with a delay
-      console.log(`Scheduling long summary for document ${documentId}`);
-      await eventScheduler.scheduleSummaryGeneration({
-        userId: userId,
-        documentId: documentId, // Use documentId instead of videoId
-        transcriptText: extractedText,
-        summaryType: 'long' as SummaryType
-      }, 1); // 1 minute delay for long summary
+      // Schedule long summary only if explicitly enabled
+      if (processingOptions?.generateLongForm === true) {
+        console.log(`Scheduling long summary for document ${documentId}`);
+        await eventScheduler.scheduleSummaryGeneration({
+          userId: userId,
+          documentId: documentId,
+          transcriptText: extractedText,
+          summaryType: 'long',
+          processingOptions
+        }, 1); // 1 minute delay for long summary
+      } else {
+        console.log('Skipping long summary generation as it is not explicitly enabled');
+      }
 
-      console.log(`Successfully scheduled both summary generation events for document ${documentId}`);
+      console.log(`Summary generation scheduling completed for document ${documentId}`);
     } catch (error) {
       console.error('Failed to schedule summary generation:', error);
       // Don't throw the error as this is a non-critical operation
@@ -625,9 +658,10 @@ class VideoProcessor {
    * Process a video job from the queue
    */
   async processVideo(job: VideoJob) {
-    const { videoId, userId, sourceUrl, documentId } = job;
+    const { videoId, userId, sourceUrl, documentId, processingOptions } = job;
     
     console.log(`Processing video ${videoId} for user ${userId}`);
+    console.log('Processing options:', processingOptions);
     
     try {
       // Get video info first
@@ -669,6 +703,39 @@ class VideoProcessor {
         } catch (downloadError) {
           console.error(`Error downloading video ${videoId}:`, downloadError);
           throw downloadError;
+        }
+      }
+      
+      // If we have transcription and documentId, schedule summaries
+      if (transcription && documentId) {
+        const eventScheduler = EventSchedulerFactory.create();
+        
+        // Schedule short summary only if enabled in processing options
+        if (processingOptions?.generateShortForm) {
+          console.log(`Scheduling short summary for video ${videoId}`);
+          await eventScheduler.scheduleSummaryGeneration({
+            userId,
+            documentId,
+            transcriptText: transcription,
+            summaryType: 'short',
+            processingOptions
+          });
+        } else {
+          console.log('Skipping short summary generation as it is not enabled in processing options');
+        }
+        
+        // Schedule long summary only if enabled in processing options
+        if (processingOptions?.generateLongForm) {
+          console.log(`Scheduling long summary for video ${videoId}`);
+          await eventScheduler.scheduleSummaryGeneration({
+            userId,
+            documentId,
+            transcriptText: transcription,
+            summaryType: 'long',
+            processingOptions
+          }, 1); // 1 minute delay
+        } else {
+          console.log('Skipping long summary generation as it is not enabled in processing options');
         }
       }
       
@@ -791,7 +858,8 @@ class Worker {
         userId: messageBody.user_id || messageBody.userId,
         sourceUrl: messageBody.source_url || messageBody.sourceUrl,
         collectionId: messageBody.collection_id || messageBody.collectionId,
-        documentId: messageBody.document_id || messageBody.documentId
+        documentId: messageBody.document_id || messageBody.documentId,
+        processingOptions: messageBody.processingOptions || {}
       });
       
       // Delete the message from the queue
@@ -839,7 +907,8 @@ class Worker {
         url: messageBody.url,
         document_id: messageBody.document_id,
         user_id: messageBody.user_id,
-        collection_id: messageBody.collection_id
+        collection_id: messageBody.collection_id,
+        processingOptions: messageBody.processingOptions || {}
       });
       
       // Delete the message from the queue
@@ -889,7 +958,8 @@ class Worker {
         documentId: messageBody.documentId || messageBody.document_id,
         userId: messageBody.userId || messageBody.user_id,
         sourceUrl: messageBody.sourceUrl || messageBody.source_url,
-        collectionId: messageBody.collectionId || messageBody.collection_id
+        collectionId: messageBody.collectionId || messageBody.collection_id,
+        processingOptions: messageBody.processingOptions || {}
       });
       
       // Delete the message from the queue

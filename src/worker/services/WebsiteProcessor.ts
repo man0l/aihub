@@ -58,6 +58,9 @@ export class WebsiteProcessor {
     document_id: string; 
     user_id: string;
     collection_id?: string;
+    processingOptions?: {
+      ai_content_extraction?: boolean;
+    };
   }): Promise<boolean> {
     console.log(`Processing website: ${job.url} for document ${job.document_id}`);
     
@@ -97,8 +100,9 @@ export class WebsiteProcessor {
         'application/json'
       );
       
-      // Use AI-extracted content if available, otherwise use regular content
-      const finalContent = websiteData.ai_content || websiteData.content;
+      // Use AI-extracted content if enabled and available, otherwise use regular content
+      const useAiContent = job.processingOptions?.ai_content_extraction !== false && websiteData.ai_content;
+      const finalContent = useAiContent ? (websiteData.ai_content || '') : (websiteData.content || '');
       
       // Update document with extracted data
       await this.databaseService.updateDocumentStatus(

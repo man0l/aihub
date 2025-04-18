@@ -76,6 +76,14 @@ interface ProcessingResult {
   message?: string;
 }
 
+interface ProcessingOptions {
+  generateShortForm?: boolean;
+  generateLongForm?: boolean;
+  generateAudio?: boolean;
+  ai_content_extraction?: boolean;
+  collectionId?: string;
+}
+
 // Get user collections
 router.get('/collections', authenticateUser, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -232,7 +240,13 @@ router.post('/youtube', authenticateUser, async (req: Request, res: Response): P
             p_user_id: req.user.id,
             p_source_url: `https://youtube.com/watch?v=${video.id}`,
             p_collection_id: options?.collectionId || null,
-            p_document_id: document.id
+            p_document_id: document.id,
+            p_processing_options: {
+              generateShortForm: options?.generateShortForm ?? true,
+              generateLongForm: options?.generateLongForm ?? true,
+              generateAudio: options?.generateAudio ?? true,
+              ai_content_extraction: options?.ai_content_extraction ?? true
+            }
           });
 
           if (error) {
@@ -331,7 +345,13 @@ router.post('/websites', authenticateUser, async (req: Request, res: Response): 
             p_document_id: document.id,
             p_user_id: req.user.id,
             p_url: url,
-            p_collection_id: options?.collectionId || null
+            p_collection_id: options?.collectionId || null,
+            p_processing_options: {
+              generateShortForm: options?.generateShortForm ?? true,
+              generateLongForm: options?.generateLongForm ?? true,
+              generateAudio: options?.generateAudio ?? true,
+              ai_content_extraction: options?.ai_content_extraction ?? true
+            }
           }
         );
 
@@ -495,7 +515,13 @@ router.post('/files', authenticateUser, upload.array('files'), async (req: Reque
             p_document_id: document.id,
             p_user_id: req.user.id,
             p_source_url: s3Url,
-            p_collection_id: options.collectionId || null
+            p_collection_id: options?.collectionId || null,
+            p_processing_options: {
+              generateShortForm: options?.generateShortForm ?? true,
+              generateLongForm: options?.generateLongForm ?? true,
+              generateAudio: options?.generateAudio ?? true,
+              ai_content_extraction: options?.ai_content_extraction ?? true
+            }
           }
         );
     
