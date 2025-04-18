@@ -285,23 +285,6 @@ router.post('/websites', authenticateUser, async (req: Request, res: Response): 
   }
 
   try {
-    const configService = new ConfigService();
-    const storageService = new StorageService(configService);
-    
-    // Set the correct bucket for website content
-    const storageServiceConfig = configService.getStorageServiceConfig();
-    const documentsBucket = storageServiceConfig.buckets.documents;
-    
-    if (!documentsBucket) {
-      throw new Error('Documents bucket is not configured');
-    }
-    
-    // Set the bucket for website content storage
-    storageService.setBucket(documentsBucket);
-    
-    const databaseService = new DatabaseService(req.supabaseClient);
-    const websiteProcessor = new WebsiteProcessor(storageService, databaseService, configService);
-    
     const results: ProcessingResult[] = [];
 
     for (const url of urls) {
@@ -310,7 +293,7 @@ router.post('/websites', authenticateUser, async (req: Request, res: Response): 
           continue;
         }
 
-        console.log(`Processing website: ${url}`);
+        console.log(`Enqueueing website for processing: ${url}`);
 
         // Create initial document record
         const { data: document, error: createError } = await req.supabaseClient
@@ -330,23 +313,32 @@ router.post('/websites', authenticateUser, async (req: Request, res: Response): 
           throw createError;
         }
 
-        // Process the website
-        const success = await websiteProcessor.processWebsite({
-          url,
-          document_id: document.id,
-          user_id: req.user.id,
-          collection_id: options?.collectionId
-        });
+        // Enqueue website for processing
+        const { data: queueResult, error: queueError } = await req.supabaseClient.rpc(
+          'enqueue_website_processing',
+          {
+            p_document_id: document.id,
+            p_user_id: req.user.id,
+            p_url: url,
+            p_collection_id: options?.collectionId || null
+          }
+        );
+
+        if (queueError) {
+          throw queueError;
+        }
+
+        console.log('Website enqueued for processing, job ID:', queueResult);
 
         results.push({
           id: document.id,
           title: document.title,
-          status: success ? 'completed' : 'error',
-          message: success ? 'Website processed successfully' : 'Failed to process website'
+          status: 'queued',
+          message: 'Website has been queued for processing'
         });
 
       } catch (urlError) {
-        console.error('Error processing website:', url, urlError);
+        console.error('Error enqueueing website:', url, urlError);
         results.push({
           id: uuidv4(),
           title: url,

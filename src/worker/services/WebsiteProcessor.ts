@@ -70,8 +70,22 @@ export class WebsiteProcessor {
       const websiteData = await this.extractWebsiteContent(job.url);
       console.log(`Website extracted: ${websiteData.title}`);
       
+      // Get the documents bucket configuration
+      const storageServiceConfig = this.config.getStorageServiceConfig();
+      const documentsBucket = storageServiceConfig.buckets.documents;
+      
+      if (!documentsBucket) {
+        throw new Error('Documents bucket is not configured');
+      }
+      
+      // Set the bucket for website content storage
+      this.storageService.setBucket(documentsBucket);
+      
       // Generate a unique key for S3
-      const contentKey = `websites/${job.user_id}/${Date.now()}-${encodeURIComponent(job.url)}.json`;
+      const timestamp = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+      const urlObj = new URL(job.url);
+      const sanitizedHostname = urlObj.hostname.replace(/\./g, '-');
+      const contentKey = `websites/${job.user_id}/${timestamp}-${job.document_id}-${sanitizedHostname}.json`;
       
       // Upload content to S3
       await this.storageService.uploadString(
@@ -89,8 +103,7 @@ export class WebsiteProcessor {
         'completed',
         {
           title: websiteData.title || new URL(job.url).hostname,
-          original_content: `s3://${this.config.processedTranscriptsBucket}/${contentKey}`,
-          short_summary: websiteData.description || null,
+          original_content: `s3://${documentsBucket}/${contentKey}`,
           transcription: finalContent // Store the valuable content
         }
       );

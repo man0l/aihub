@@ -991,7 +991,7 @@ class Application {
     );
     
     this.websiteProcessor = new WebsiteProcessor(
-      StorageServiceFactory.getStorageService('rawMedia', this.configService),
+      StorageServiceFactory.getStorageService('documents', this.configService),
       this.databaseService,
       this.configService
     );
