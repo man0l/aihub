@@ -287,6 +287,18 @@ router.post('/websites', authenticateUser, async (req: Request, res: Response): 
   try {
     const configService = new ConfigService();
     const storageService = new StorageService(configService);
+    
+    // Set the correct bucket for website content
+    const storageServiceConfig = configService.getStorageServiceConfig();
+    const documentsBucket = storageServiceConfig.buckets.documents;
+    
+    if (!documentsBucket) {
+      throw new Error('Documents bucket is not configured');
+    }
+    
+    // Set the bucket for website content storage
+    storageService.setBucket(documentsBucket);
+    
     const databaseService = new DatabaseService(req.supabaseClient);
     const websiteProcessor = new WebsiteProcessor(storageService, databaseService, configService);
     
