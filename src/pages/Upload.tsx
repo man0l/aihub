@@ -12,7 +12,8 @@ import {
   FolderPlus,
   AlertCircle,
   CheckCircle,
-  XCircle
+  XCircle,
+  Info
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { VideoSource, ProcessingOptions } from '../lib/types';
@@ -53,7 +54,7 @@ export default function Upload() {
   });
   const [processingStatus, setProcessingStatus] = useState<{ [key: string]: string }>({});
   const [uploadStatuses, setUploadStatuses] = useState<FileUploadStatus[]>([]);
-  const [acceptedFileTypes] = useState('.pdf,.doc,.docx,.txt');
+  const [acceptedFileTypes] = useState('.pdf,.doc,.docx,.txt,.rtf,.xls,.xlsx,.odt,.ods,.odp');
 
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -178,21 +179,32 @@ export default function Upload() {
       
       // Update statuses based on results
       setUploadStatuses(prev => 
-        prev.map((status, index) => ({
-          ...status,
-          status: results[index]?.status === 'error' ? 'error' : 'success',
-          message: results[index]?.message
-        }))
+        prev.map((status, index) => {
+          // Find matching result by filename or index
+          const matchingResult = results.find((r: any) => r.title === status.file.name) || results[index];
+          return {
+            ...status,
+            status: matchingResult?.status === 'error' ? 'error' : 'success',
+            message: matchingResult?.message
+          };
+        })
       );
 
       const errors = results.filter((r: any) => r.status === 'error');
       if (errors.length > 0) {
         setError({
-          message: 'Some files failed to process',
-          details: errors.map((e: any) => e.message).join(', ')
+          message: errors.length === 1 ? 'File failed to process' : 'Some files failed to process',
+          details: errors.map((e: any) => `${e.title}: ${e.message}`).join('\n')
         });
+        
+        // Only navigate if there are no errors or some files succeeded
+        if (results.some((r: any) => r.status !== 'error')) {
+          setTimeout(() => {
+            navigate('/library');
+          }, 3000);
+        }
       } else {
-        // Wait a bit to show success state before navigating
+        // All uploads successful - wait a bit to show success state before navigating
         setTimeout(() => {
           navigate('/library');
         }, 1500);
@@ -496,6 +508,21 @@ export default function Upload() {
 
           {activeTab === 'file' ? (
             <div className="space-y-4">
+              <div className="mb-4 bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded-md">
+                <div className="flex items-start">
+                  <Info className="h-5 w-5 mr-2 mt-0.5" />
+                  <div>
+                    <p className="font-medium">Supported File Formats</p>
+                    <ul className="text-sm mt-1 list-disc list-inside">
+                      <li>Documents: PDF, DOC, DOCX, ODT (OpenOffice)</li>
+                      <li>Text files: TXT, RTF</li>
+                      <li>Spreadsheets: XLS, XLSX, ODS (OpenOffice)</li>
+                    </ul>
+                    <p className="text-sm mt-2 italic">Files will be validated before processing. Invalid files (e.g., PDFs without proper headers) will be rejected.</p>
+                  </div>
+                </div>
+              </div>
+              
               <div className="flex justify-center">
                 <div className="w-full max-w-lg">
                   <label className={`flex flex-col items-center px-4 py-6 border-2 border-dashed rounded-lg cursor-pointer transition-colors duration-200 
@@ -513,7 +540,7 @@ export default function Upload() {
                       Drop your files here or click to browse
                     </span>
                     <span className="mt-1 text-sm text-gray-500">
-                      Support for PDF, DOC, DOCX, TXT
+                      PDF, Word, Text, Excel, and OpenOffice formats supported
                     </span>
                   </label>
                 </div>
@@ -521,9 +548,13 @@ export default function Upload() {
 
               {/* Upload Status List */}
               {uploadStatuses.length > 0 && (
-                <div className="space-y-2">
+                <div className="space-y-2 mt-4">
+                  <h3 className="text-sm font-medium text-gray-700">Upload Status</h3>
                   {uploadStatuses.map((status, index) => (
-                    <div key={index} className="bg-white rounded-lg border p-4">
+                    <div key={index} className={`bg-white rounded-lg border p-4 ${
+                      status.status === 'error' ? 'border-red-200' : 
+                      status.status === 'success' ? 'border-green-200' : 'border-gray-200'
+                    }`}>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-3">
                           <div className="flex-shrink-0">
@@ -534,7 +565,10 @@ export default function Upload() {
                           </div>
                           <div>
                             <p className="text-sm font-medium text-gray-900">{status.file.name}</p>
-                            <p className="text-xs text-gray-500">
+                            <p className={`text-xs ${
+                              status.status === 'error' ? 'text-red-600' : 
+                              status.status === 'success' ? 'text-green-600' : 'text-gray-500'
+                            }`}>
                               {status.status === 'uploading' && `Uploading... ${status.progress}%`}
                               {status.status === 'success' && 'Successfully uploaded'}
                               {status.status === 'error' && (status.message || 'Upload failed')}

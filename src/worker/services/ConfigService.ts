@@ -60,14 +60,24 @@ export class ConfigService {
       bucket: '' // This will be set by the storage service
     };
 
+    // Ensure document bucket has a default if not explicitly defined
+    const documentsBucket = process.env.DOCUMENTS_BUCKET || 'document-upload';
+
     this.storageServiceConfig = {
       projectPrefix,
       buckets: {
-        rawMedia: `${projectPrefix}-${process.env.RAW_MEDIA_BUCKET}`,
-        processedTranscripts: `${projectPrefix}-${process.env.PROCESSED_TRANSCRIPTS_BUCKET}`,
-        documents: process.env.DOCUMENTS_BUCKET ? `${projectPrefix}-${process.env.DOCUMENTS_BUCKET}` : undefined
+        rawMedia: `${projectPrefix}-${process.env.RAW_MEDIA_BUCKET || 'raw-media'}`,
+        processedTranscripts: `${projectPrefix}-${process.env.PROCESSED_TRANSCRIPTS_BUCKET || 'processed-transcripts'}`,
+        documents: `${projectPrefix}-${documentsBucket}`
       }
     };
+
+    console.log('Storage service config initialized:', {
+      projectPrefix,
+      buckets: {
+        ...this.storageServiceConfig.buckets
+      }
+    });
   }
 
   /**

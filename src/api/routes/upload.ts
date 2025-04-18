@@ -9,9 +9,57 @@ import { IStorageService } from '../../shared/interfaces/IStorageService.js';
 import { StorageConfig, StorageServiceConfig } from '../../shared/interfaces/StorageConfig.js';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import fs from 'fs';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
+
+// Helper function to check if a buffer is a valid PDF (has PDF header)
+function isValidPDF(buffer: Buffer): boolean {
+  // PDF files start with the magic bytes "%PDF-"
+  return buffer.length > 5 && buffer.toString('ascii', 0, 5) === '%PDF-';
+}
+
+// Helper function to check if a buffer is a valid Word document
+function isValidDocx(buffer: Buffer): boolean {
+  // DOCX files are ZIP files that start with PK magic bytes
+  return buffer.length > 4 && 
+         buffer[0] === 0x50 && buffer[1] === 0x4B && 
+         buffer[2] === 0x03 && buffer[3] === 0x04;
+}
+
+// Define supported file types for document processing
+const SUPPORTED_MIME_TYPES = [
+  // PDF files
+  'application/pdf',
+  // Word documents
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  // Text files
+  'text/plain',
+  'text/rtf',
+  'application/rtf',
+  // Excel files
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  // OpenOffice formats
+  'application/vnd.oasis.opendocument.text',
+  'application/vnd.oasis.opendocument.spreadsheet',
+  'application/vnd.oasis.opendocument.presentation'
+];
+
+const SUPPORTED_FILE_EXTENSIONS = [
+  // PDF
+  '.pdf',
+  // Word
+  '.doc', '.docx',
+  // Text
+  '.txt', '.rtf',
+  // Excel
+  '.xls', '.xlsx',
+  // OpenOffice
+  '.odt', '.ods', '.odp'
+];
 
 // Define types for API responses
 interface CollectionResponse {
@@ -272,22 +320,74 @@ router.post('/files', authenticateUser, upload.array('files'), async (req: Reque
     
     for (const file of req.files as Express.Multer.File[]) {
       try {
-        // Set the documents bucket for storage
-        storageService.setBucket(configService.getStorageServiceConfig().buckets.documents || '');
+        // Validate file type
+        const fileExtension = path.extname(file.originalname).toLowerCase();
+        const isValidMimeType = SUPPORTED_MIME_TYPES.includes(file.mimetype);
+        const isValidExtension = SUPPORTED_FILE_EXTENSIONS.includes(fileExtension);
+        
+        if (!isValidMimeType && !isValidExtension) {
+          console.warn(`Unsupported file type: ${file.mimetype}, extension: ${fileExtension}`);
+          results.push({
+            id: uuidv4(),
+            title: file.originalname,
+            status: 'error',
+            message: `Unsupported file type. Supported formats include PDF, Word, Text, Excel, and OpenOffice documents.`
+          });
+          continue; // Skip processing this file
+        }
+        
+        // Additional validation for specific file types
+        if (fileExtension === '.pdf' && !isValidPDF(file.buffer)) {
+          console.warn(`Invalid PDF file: ${file.originalname} - Missing PDF header`);
+          results.push({
+            id: uuidv4(),
+            title: file.originalname,
+            status: 'error',
+            message: `Invalid PDF file. The file does not have a valid PDF header.`
+          });
+          continue; // Skip processing this file
+        }
+        
+        if ((fileExtension === '.docx') && !isValidDocx(file.buffer)) {
+          console.warn(`Invalid DOCX file: ${file.originalname} - Missing DOCX header`);
+          results.push({
+            id: uuidv4(),
+            title: file.originalname,
+            status: 'error',
+            message: `Invalid Word document. The file does not have a valid document format.`
+          });
+          continue; // Skip processing this file
+        }
+        
+        // Get the documents bucket for storage
+        const storageServiceConfig = configService.getStorageServiceConfig();
+        const documentsBucket = storageServiceConfig.buckets.documents;
+        
+        if (!documentsBucket) {
+          throw new Error('Documents bucket is not configured');
+        }
+        
+        // Set the bucket for the storage service
+        storageService.setBucket(documentsBucket);
         
         // Generate a unique filename
-        const fileExtension = path.extname(file.originalname);
         const uniqueFilename = `${uuidv4()}${fileExtension}`;
         const documentKey = `${req.user.id}/${uniqueFilename}`;
         
-        // Upload file to S3
+        console.log(`Uploading file to bucket: ${documentsBucket}, key: ${documentKey}`);
+        
+        // Upload file to S3 using the buffer directly
         const fileBuffer = file.buffer;
-        const s3Url = await storageService.uploadString(
-          fileBuffer.toString('base64'),
+        
+        // Upload the file buffer directly
+        const s3Url = await storageService.uploadBuffer(
+          fileBuffer,
           documentKey,
           file.mimetype
         );
-
+        
+        console.log(`File uploaded to S3: ${s3Url}`);
+        
         // Create document record in database
         const { data: document, error: createError } = await req.supabaseClient
           .from('documents')
@@ -301,11 +401,11 @@ router.post('/files', authenticateUser, upload.array('files'), async (req: Reque
           })
           .select()
           .single();
-
+    
         if (createError) {
           throw createError;
         }
-
+    
         // Enqueue document for processing
         const { data: queueResult, error: queueError } = await req.supabaseClient.rpc(
           'enqueue_document_processing',
@@ -316,11 +416,11 @@ router.post('/files', authenticateUser, upload.array('files'), async (req: Reque
             p_collection_id: options.collectionId || null
           }
         );
-
+    
         if (queueError) {
           throw queueError;
         }
-
+    
         results.push({
           id: document.id,
           title: file.originalname,
