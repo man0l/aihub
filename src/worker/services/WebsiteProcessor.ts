@@ -4,6 +4,8 @@ import { ConfigService } from './ConfigService.js';
 import { DatabaseService } from './DatabaseService.js';
 import { IStorageService } from './interfaces/IStorageService.js';
 import OpenAI from 'openai';
+import { EventSchedulerFactory } from './factories/EventSchedulerFactory.js';
+import { SummaryType } from './interfaces/EventServices.js';
 
 interface WebsiteMetadata {
   title: string;
@@ -82,10 +84,11 @@ export class WebsiteProcessor {
       this.storageService.setBucket(documentsBucket);
       
       // Generate a unique key for S3
-      const timestamp = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+      const date = new Date();
+      const formattedDate = date.toISOString().split('T')[0]; // YYYY-MM-DD format
       const urlObj = new URL(job.url);
-      const sanitizedHostname = urlObj.hostname.replace(/\./g, '-');
-      const contentKey = `websites/${job.user_id}/${timestamp}-${job.document_id}-${sanitizedHostname}.json`;
+      const sanitizedHostname = urlObj.hostname.replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
+      const contentKey = `websites/${job.user_id}/${formattedDate}-${job.document_id}-${sanitizedHostname}.json`;
       
       // Upload content to S3
       await this.storageService.uploadString(
@@ -107,6 +110,33 @@ export class WebsiteProcessor {
           transcription: finalContent // Store the valuable content
         }
       );
+
+      // Schedule summary generation events
+      try {
+        console.log(`Scheduling summary generation for document ${job.document_id}`);
+        const eventScheduler = EventSchedulerFactory.create();
+
+        // Schedule short summary immediately
+        await eventScheduler.scheduleSummaryGeneration({
+          userId: job.user_id,
+          documentId: job.document_id,
+          transcriptText: finalContent,
+          summaryType: 'short'
+        });
+        console.log(`Short summary scheduled for document ${job.document_id}`);
+
+        // Schedule long summary with a delay
+        await eventScheduler.scheduleSummaryGeneration({
+          userId: job.user_id,
+          documentId: job.document_id,
+          transcriptText: finalContent,
+          summaryType: 'long'
+        }, 1); // 1 minute delay
+        console.log(`Long summary scheduled for document ${job.document_id}`);
+      } catch (eventError) {
+        console.error('Failed to schedule summary generation:', eventError);
+        // Don't throw the error as this is a non-critical operation
+      }
       
       console.log(`Website processing completed for document ${job.document_id}`);
       return true;
