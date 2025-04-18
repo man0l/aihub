@@ -11,18 +11,17 @@ import {
   DownloadProgress,
   DownloaderOptions
 } from '../interfaces/VideoServices.js';
-import { DefaultCaptionParserFactory } from '../factories/CaptionParserFactory.js';
 import { CaptionService } from '../CaptionService.js';
 
 export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, VideoDownloader {
-  private options: DownloaderOptions;
-  private captionService: CaptionService;
+  private readonly userId?: string;
 
-  constructor(options: DownloaderOptions = {}) {
-    this.options = options;
-    // Get userId from options if available
-    const userId = options.userId as string | undefined;
-    this.captionService = new CaptionService(new DefaultCaptionParserFactory(), userId);
+  constructor(
+    private readonly options: DownloaderOptions = {},
+    private readonly captionService: CaptionService
+  ) {
+    this.userId = options.userId;
+    console.log(`YtDlpAdapter initialized with userId: ${this.userId}`);
   }
 
   async getVideoInfo(videoId: string): Promise<VideoInfo> {

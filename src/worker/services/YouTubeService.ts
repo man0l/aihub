@@ -22,13 +22,14 @@ export class YouTubeService {
   constructor(
     configService: ConfigService, 
     axiosClient: AxiosInstance,
-    downloaderType: DownloaderType = 'ytdl'
+    downloaderType: DownloaderType = 'ytdl',
+    private readonly userId?: string
   ) {
     this.config = configService;
     this.axiosClient = axiosClient;
-    this.downloaderFactory = VideoDownloaderFactory.getInstance();
+    this.downloaderFactory = VideoDownloaderFactory.getInstance({ userId });
     this.downloaderType = downloaderType;
-    this.captionService = new CaptionService(new DefaultCaptionParserFactory());
+    this.captionService = new CaptionService(new DefaultCaptionParserFactory(), userId);
   }
 
   /**

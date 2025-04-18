@@ -81,11 +81,19 @@ class VideoProcessor {
     console.log(`Processing video ${videoId} for user ${userId}`);
     
     try {
-      // Step 1: Get video info
-      const videoInfo = await this.youtubeService.getVideoInfo(videoId);
-      console.log(`Video info retrieved: ${videoInfo.title}`);
-      
-      // Step 2: Try to get transcription using YouTube API first
+      // Get video info first
+      const info = await this.youtubeService.getVideoInfo(videoId);
+      console.log(`Video info retrieved: ${info.title}`);
+
+      // Update YouTubeService with userId for this request
+      this.youtubeService = new YouTubeService(
+        this.config, 
+        this.youtubeService['axiosClient'], 
+        'yt-dlp',
+        userId
+      );
+
+      // Step 1: Try to get transcription using YouTube API first
       let transcription = await this.youtubeService.fetchTranscription(videoId);
       
       // If no transcription is available from YouTube API, download the video and transcribe it
@@ -107,7 +115,7 @@ class VideoProcessor {
           
           // At this point, we would normally send the audio for transcription
           // For now, we'll create a placeholder transcription from the video metadata
-          transcription = `Title: ${videoInfo.title}\nChannel: ${videoInfo.author?.name || 'Unknown'}\n\nThis is a placeholder transcription as the automatic transcription process was unable to extract the speech content.`;
+          transcription = `Title: ${info.title}\nChannel: ${info.author?.name || 'Unknown'}\n\nThis is a placeholder transcription as the automatic transcription process was unable to extract the speech content.`;
           
         } catch (downloadError) {
           console.error(`Error downloading video ${videoId}:`, downloadError);

@@ -14,18 +14,15 @@ import { DefaultCaptionParserFactory } from './factories/CaptionParserFactory.js
 import { CaptionService } from './CaptionService.js';
 
 export class VideoDownloadService {
-  private readonly captionService: CaptionService;
-
   constructor(
     private readonly infoProvider: VideoInfoProvider,
     private readonly formatSelector: VideoFormatSelector,
     private readonly downloader: VideoDownloader,
     private readonly fileManager: FileManager,
     private readonly progressTracker: ProgressTracker,
+    private readonly captionService: CaptionService,
     private readonly options: DownloaderOptions = {}
-  ) {
-    this.captionService = new CaptionService(new DefaultCaptionParserFactory());
-  }
+  ) {}
 
   async downloadVideo(videoId: string, outputDir: string): Promise<string> {
     const outputFilePath = path.join(outputDir, `${videoId}.mp4`);

@@ -4,12 +4,19 @@ import { VideoFormat, VideoInfo } from '../interfaces/VideoServices.js';
 import { Readable, PassThrough } from 'stream';
 import { pipeline } from 'stream/promises';
 import fs from 'fs';
+import { DownloaderOptions } from '../interfaces/VideoServices.js';
+import { CaptionService } from '../CaptionService.js';
+import { DefaultCaptionParserFactory } from '../factories/CaptionParserFactory.js';
 
 export class YtDlpVideoDownloaderAdapter implements VideoDownloaderInterface {
   private ytDlpAdapter: YtDlpAdapter;
+  private readonly userId?: string;
 
-  constructor() {
-    this.ytDlpAdapter = new YtDlpAdapter();
+  constructor(private readonly options: DownloaderOptions = {}) {
+    this.userId = options.userId;
+    console.log(`YtDlpVideoDownloaderAdapter initialized with userId: ${this.userId}`);
+    const captionService = new CaptionService(new DefaultCaptionParserFactory(), this.userId);
+    this.ytDlpAdapter = new YtDlpAdapter(options, captionService);
   }
 
   async getInfo(videoUrl: string): Promise<VideoInfo> {
