@@ -912,8 +912,8 @@ class Worker {
     while (this.isRunning) {
       try {
         // Process all queues
-        // await this.processVideoQueue();
-        // await this.processWebsiteQueue();
+        await this.processVideoQueue();
+        await this.processWebsiteQueue();
         await this.processDocumentQueue();
         
         // Wait before checking again
