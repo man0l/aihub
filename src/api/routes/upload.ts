@@ -313,6 +313,17 @@ router.post('/websites', authenticateUser, async (req: Request, res: Response): 
           throw createError;
         }
 
+        // Update the document to set video_id equal to document.id
+        const { error: updateError } = await req.supabaseClient
+          .from('documents')
+          .update({ video_id: document.id })
+          .eq('id', document.id);
+
+        if (updateError) {
+          console.error('Error updating document video_id:', updateError);
+          throw updateError;
+        }
+
         // Enqueue website for processing
         const { data: queueResult, error: queueError } = await req.supabaseClient.rpc(
           'enqueue_website_processing',
