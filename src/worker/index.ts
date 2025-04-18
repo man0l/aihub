@@ -32,6 +32,10 @@ import { WebsiteProcessor } from './services/WebsiteProcessor.js';
 import { StorageServiceFactory } from './services/StorageServiceFactory.js';
 import { IStorageService } from './services/interfaces/IStorageService.js';
 
+// Import event scheduler for summary generation
+import { EventSchedulerFactory } from './services/factories/EventSchedulerFactory.js';
+import { SummaryType } from './services/interfaces/EventServices.js';
+
 // Export all classes/services that are used in tests
 export { ConfigService } from './services/ConfigService.js';
 export { ClientFactory } from './services/ClientFactory.js';
@@ -118,7 +122,7 @@ class DocumentProcessor {
    * Process a document job from the queue
    */
   async processDocument(job: DocumentJob) {
-    const { documentId, userId, sourceUrl } = job;
+    const { documentId, userId, sourceUrl, collectionId } = job;
     
     console.log(`Processing document ${documentId} for user ${userId}`);
     console.log(`Source URL: ${sourceUrl}`);
@@ -159,6 +163,12 @@ class DocumentProcessor {
         // Extract text content from the document
         const extractedText = await this.extractDocumentContent(tempFilePath);
         console.log(`Successfully extracted text from document ${documentId}`);
+
+        // Schedule summary generation events
+        if (userId && extractedText) {
+          console.log(`Scheduling summary generation for document ${documentId}`);
+          await this.scheduleSummaryGeneration(documentId, userId, extractedText);
+        }
 
         // Upload extracted text to S3
         // Use the same bucket as the original document
@@ -227,6 +237,42 @@ class DocumentProcessor {
       );
       
       throw error;
+    }
+  }
+
+  /**
+   * Schedules both short and long summary generation events for document content
+   * @param documentId The document ID
+   * @param userId The user ID
+   * @param extractedText The extracted text content from the document
+   */
+  private async scheduleSummaryGeneration(documentId: string, userId: string, extractedText: string): Promise<void> {
+    try {
+      console.log(`Creating event scheduler for document ${documentId} with userId ${userId}`);
+      const eventScheduler = EventSchedulerFactory.create();
+
+      // Schedule short summary immediately
+      console.log(`Scheduling short summary for document ${documentId}`);
+      await eventScheduler.scheduleSummaryGeneration({
+        userId: userId,
+        documentId: documentId, // Use documentId instead of videoId
+        transcriptText: extractedText,
+        summaryType: 'short' as SummaryType
+      });
+
+      // Schedule long summary with a delay
+      console.log(`Scheduling long summary for document ${documentId}`);
+      await eventScheduler.scheduleSummaryGeneration({
+        userId: userId,
+        documentId: documentId, // Use documentId instead of videoId
+        transcriptText: extractedText,
+        summaryType: 'long' as SummaryType
+      }, 1); // 1 minute delay for long summary
+
+      console.log(`Successfully scheduled both summary generation events for document ${documentId}`);
+    } catch (error) {
+      console.error('Failed to schedule summary generation:', error);
+      // Don't throw the error as this is a non-critical operation
     }
   }
 

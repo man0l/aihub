@@ -2,7 +2,8 @@ export type SummaryType = 'short' | 'long';
 
 export interface SummaryGenerationEvent {
   userId: string;
-  videoId: string;
+  videoId?: string;
+  documentId?: string;
   transcriptText: string;
   summaryType: SummaryType;
 }
