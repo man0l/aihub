@@ -1,8 +1,8 @@
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { ConfigService } from './ConfigService.js';
-import { IStorageService } from './interfaces/IStorageService.js';
-import { StorageConfig } from './interfaces/StorageConfig.js';
+import { IStorageService } from '../../shared/interfaces/IStorageService.js';
+import { StorageConfig } from '../../shared/interfaces/StorageConfig.js';
 import fs from 'fs';
 import path from 'path';
 import { Readable } from 'stream';

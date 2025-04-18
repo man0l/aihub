@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
-import { StorageServiceConfig, StorageConfig } from './interfaces/StorageConfig.js';
+import { StorageServiceConfig, StorageConfig } from '../../shared/interfaces/StorageConfig.js';
 
 /**
  * Config Service - Responsible for environment variables and configuration

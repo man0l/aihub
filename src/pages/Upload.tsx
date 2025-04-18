@@ -10,7 +10,9 @@ import {
   Trash2,
   Settings,
   FolderPlus,
-  AlertCircle
+  AlertCircle,
+  CheckCircle,
+  XCircle
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { VideoSource, ProcessingOptions } from '../lib/types';
@@ -24,6 +26,13 @@ interface ProcessingError {
 interface Collection {
   id: string;
   name: string;
+}
+
+interface FileUploadStatus {
+  file: File;
+  progress: number;
+  status: 'pending' | 'uploading' | 'success' | 'error';
+  message?: string;
 }
 
 export default function Upload() {
@@ -43,6 +52,8 @@ export default function Upload() {
     generateAudio: true,
   });
   const [processingStatus, setProcessingStatus] = useState<{ [key: string]: string }>({});
+  const [uploadStatuses, setUploadStatuses] = useState<FileUploadStatus[]>([]);
+  const [acceptedFileTypes] = useState('.pdf,.doc,.docx,.txt');
 
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -122,9 +133,17 @@ export default function Upload() {
       setError({ message: 'You need to be logged in to upload files' });
       return;
     }
-    
+
     setLoading(true);
     setError(null);
+
+    // Initialize upload statuses
+    const initialStatuses: FileUploadStatus[] = Array.from(files).map(file => ({
+      file,
+      progress: 0,
+      status: 'pending'
+    }));
+    setUploadStatuses(initialStatuses);
 
     try {
       const formData = new FormData();
@@ -140,21 +159,53 @@ export default function Upload() {
         headers: {
           'Content-Type': 'multipart/form-data',
           Authorization: `Bearer ${user.access_token}`
+        },
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            setUploadStatuses(prev => 
+              prev.map(status => ({
+                ...status,
+                progress: progress,
+                status: 'uploading'
+              }))
+            );
+          }
         }
       });
 
       const results = response.data;
-      const errors = results.filter((r: any) => r.status === 'error');
       
+      // Update statuses based on results
+      setUploadStatuses(prev => 
+        prev.map((status, index) => ({
+          ...status,
+          status: results[index]?.status === 'error' ? 'error' : 'success',
+          message: results[index]?.message
+        }))
+      );
+
+      const errors = results.filter((r: any) => r.status === 'error');
       if (errors.length > 0) {
         setError({
           message: 'Some files failed to process',
-          details: errors.map((e: any) => e.error).join(', ')
+          details: errors.map((e: any) => e.message).join(', ')
         });
+      } else {
+        // Wait a bit to show success state before navigating
+        setTimeout(() => {
+          navigate('/library');
+        }, 1500);
       }
-
-      navigate('/library');
     } catch (err) {
+      setUploadStatuses(prev => 
+        prev.map(status => ({
+          ...status,
+          status: 'error',
+          message: err instanceof Error ? err.message : 'An unknown error occurred'
+        }))
+      );
+      
       setError({
         message: 'Processing failed',
         details: err instanceof Error ? err.message : 'An unknown error occurred'
@@ -444,26 +495,66 @@ export default function Upload() {
           )}
 
           {activeTab === 'file' ? (
-            <div className="flex justify-center">
-              <div className="w-full max-w-lg">
-                <label className="flex flex-col items-center px-4 py-6 border-2 border-dashed rounded-lg border-gray-300 cursor-pointer hover:border-purple-500">
-                  <UploadIcon className="h-12 w-12 text-gray-400" />
-                  <span className="mt-2 text-base text-gray-600">
-                    Drop your files here or click to browse
-                  </span>
-                  <span className="mt-1 text-sm text-gray-500">
-                    Support for PDF, DOC, DOCX, TXT
-                  </span>
-                  <input
-                    type="file"
-                    className="hidden"
-                    accept=".pdf,.doc,.docx,.txt"
-                    multiple
-                    onChange={(e) => e.target.files && handleFileUpload(e.target.files)}
-                    disabled={loading}
-                  />
-                </label>
+            <div className="space-y-4">
+              <div className="flex justify-center">
+                <div className="w-full max-w-lg">
+                  <label className={`flex flex-col items-center px-4 py-6 border-2 border-dashed rounded-lg cursor-pointer transition-colors duration-200 
+                    ${loading ? 'opacity-50 cursor-not-allowed' : 'hover:border-purple-500'}`}>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept={acceptedFileTypes}
+                      multiple
+                      onChange={(e) => e.target.files && handleFileUpload(e.target.files)}
+                      disabled={loading}
+                    />
+                    <UploadIcon className="h-12 w-12 text-gray-400" />
+                    <span className="mt-2 text-base text-gray-600">
+                      Drop your files here or click to browse
+                    </span>
+                    <span className="mt-1 text-sm text-gray-500">
+                      Support for PDF, DOC, DOCX, TXT
+                    </span>
+                  </label>
+                </div>
               </div>
+
+              {/* Upload Status List */}
+              {uploadStatuses.length > 0 && (
+                <div className="space-y-2">
+                  {uploadStatuses.map((status, index) => (
+                    <div key={index} className="bg-white rounded-lg border p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <div className="flex-shrink-0">
+                            {status.status === 'success' && <CheckCircle className="h-5 w-5 text-green-500" />}
+                            {status.status === 'error' && <XCircle className="h-5 w-5 text-red-500" />}
+                            {(status.status === 'pending' || status.status === 'uploading') && 
+                              <Loader2 className="h-5 w-5 text-purple-500 animate-spin" />}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">{status.file.name}</p>
+                            <p className="text-xs text-gray-500">
+                              {status.status === 'uploading' && `Uploading... ${status.progress}%`}
+                              {status.status === 'success' && 'Successfully uploaded'}
+                              {status.status === 'error' && (status.message || 'Upload failed')}
+                              {status.status === 'pending' && 'Waiting to upload...'}
+                            </p>
+                          </div>
+                        </div>
+                        {status.status === 'uploading' && (
+                          <div className="w-24 bg-gray-200 rounded-full h-2.5">
+                            <div 
+                              className="bg-purple-600 h-2.5 rounded-full transition-all duration-300" 
+                              style={{ width: `${status.progress}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-6">

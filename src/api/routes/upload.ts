@@ -3,6 +3,12 @@ import multer from 'multer';
 import { authenticateUser } from '../middleware/auth.js';
 import { extractVideoId, extractPlaylistId, getPlaylistVideos, getVideoMetadata } from '../utils/youtube.js';
 import { generateSummary, generateAudio } from '../utils/openai.js';
+import { StorageService } from '../../worker/services/StorageService.js';
+import { ConfigService } from '../../worker/services/ConfigService.js';
+import { IStorageService } from '../../shared/interfaces/IStorageService.js';
+import { StorageConfig, StorageServiceConfig } from '../../shared/interfaces/StorageConfig.js';
+import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -257,16 +263,85 @@ router.post('/files', authenticateUser, upload.array('files'), async (req: Reque
     return;
   }
 
+  const options = JSON.parse(req.body.options || '{}');
+  const configService = new ConfigService();
+  const storageService = new StorageService(configService);
+  
   try {
-    // Create a typed response
-    const results: ProcessingResult[] = [{
-      id: 'mock-id',
-      title: 'Mock File Processing',
-      status: 'completed'
-    }];
+    const results: ProcessingResult[] = [];
+    
+    for (const file of req.files as Express.Multer.File[]) {
+      try {
+        // Set the documents bucket for storage
+        storageService.setBucket(configService.getStorageServiceConfig().buckets.documents || '');
+        
+        // Generate a unique filename
+        const fileExtension = path.extname(file.originalname);
+        const uniqueFilename = `${uuidv4()}${fileExtension}`;
+        const documentKey = `${req.user.id}/${uniqueFilename}`;
+        
+        // Upload file to S3
+        const fileBuffer = file.buffer;
+        const s3Url = await storageService.uploadString(
+          fileBuffer.toString('base64'),
+          documentKey,
+          file.mimetype
+        );
+
+        // Create document record in database
+        const { data: document, error: createError } = await req.supabaseClient
+          .from('documents')
+          .insert({
+            title: file.originalname,
+            content_type: file.mimetype,
+            source_url: s3Url,
+            user_id: req.user.id,
+            collection_id: options.collectionId || null,
+            processing_status: 'queued'
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          throw createError;
+        }
+
+        // Enqueue document for processing
+        const { data: queueResult, error: queueError } = await req.supabaseClient.rpc(
+          'enqueue_document_processing',
+          {
+            p_document_id: document.id,
+            p_user_id: req.user.id,
+            p_source_url: s3Url,
+            p_collection_id: options.collectionId || null
+          }
+        );
+
+        if (queueError) {
+          throw queueError;
+        }
+
+        results.push({
+          id: document.id,
+          title: file.originalname,
+          status: 'queued',
+          message: 'Document has been queued for processing'
+        });
+
+      } catch (fileError) {
+        console.error('Error processing file:', file.originalname, fileError);
+        results.push({
+          id: uuidv4(),
+          title: file.originalname,
+          status: 'error',
+          message: fileError instanceof Error ? fileError.message : 'Unknown error'
+        });
+      }
+    }
     
     res.json(results);
   } catch (error) {
+    console.error('Failed to process files:', error);
     res.status(500).json({
       message: 'Failed to process files',
       error: error instanceof Error ? error.message : 'Unknown error'
