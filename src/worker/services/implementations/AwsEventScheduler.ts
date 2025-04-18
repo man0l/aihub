@@ -1,6 +1,7 @@
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { EventScheduler, SummaryGenerationEvent } from '../interfaces/EventServices.js';
 import { ConfigService } from '../ConfigService.js';
+import { formatISO } from 'date-fns';
 
 export class AwsEventScheduler implements EventScheduler {
   private client: EventBridgeClient;
@@ -37,29 +38,28 @@ export class AwsEventScheduler implements EventScheduler {
       throw new Error('Either videoId or documentId must be provided');
     }
 
-    const detailType = `summary.generation.${summaryType}`;
-    const eventTime = new Date();
+    // Use "SummaryGenerationRequest" as the detail type to match existing rule
+    const detailType = "SummaryGenerationRequest";
+    const eventTime = new Date(Date.now() + delayMinutes * 60000);
 
-    if (delayMinutes > 0) {
-      eventTime.setMinutes(eventTime.getMinutes() + delayMinutes);
-    }
+    console.log(`Scheduling ${summaryType} summary generation for ${sourceType} ${sourceId} at ${formatISO(eventTime)}`);
 
-    console.log(`Scheduling ${summaryType} summary generation for ${sourceType} ${sourceId} at ${eventTime.toISOString()}`);
+    // Create the event detail
+    const eventDetail = {
+      user_id: userId,
+      video_id: sourceId,
+      transcript_text: transcriptText,
+      summary_type: summaryType
+    };
 
     const putCommand = new PutEventsCommand({
       Entries: [
         {
           EventBusName: this.eventBusName,
-          Source: 'ai-knowledge-hub',
+          Source: "custom.transcription",
           DetailType: detailType,
           Time: eventTime,
-          Detail: JSON.stringify({
-            userId,
-            sourceType,
-            sourceId,
-            transcriptText,
-            summaryType,
-          }),
+          Detail: JSON.stringify(eventDetail),
         },
       ],
     });

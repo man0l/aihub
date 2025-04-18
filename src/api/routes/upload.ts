@@ -397,13 +397,25 @@ router.post('/files', authenticateUser, upload.array('files'), async (req: Reque
             source_url: s3Url,
             user_id: req.user.id,
             collection_id: options.collectionId || null,
-            processing_status: 'queued'
+            processing_status: 'queued',
+            video_id: null  // We'll update this after we get the document ID
           })
           .select()
           .single();
     
         if (createError) {
           throw createError;
+        }
+
+        // Update the document to set video_id equal to document.id
+        const { error: updateError } = await req.supabaseClient
+          .from('documents')
+          .update({ video_id: document.id })
+          .eq('id', document.id);
+
+        if (updateError) {
+          console.error('Error updating document video_id:', updateError);
+          throw updateError;
         }
     
         // Enqueue document for processing
