@@ -10,6 +10,8 @@ import { StorageConfig, StorageServiceConfig } from '../../shared/interfaces/Sto
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
+import { DatabaseService } from '../../worker/services/DatabaseService.js';
+import { WebsiteProcessor } from '../../worker/services/WebsiteProcessor.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -283,15 +285,68 @@ router.post('/websites', authenticateUser, async (req: Request, res: Response): 
   }
 
   try {
-    // Create a typed response
-    const results: ProcessingResult[] = [{
-      id: 'mock-id',
-      title: 'Mock Website Processing',
-      status: 'completed'
-    }];
+    const configService = new ConfigService();
+    const storageService = new StorageService(configService);
+    const databaseService = new DatabaseService(req.supabaseClient);
+    const websiteProcessor = new WebsiteProcessor(storageService, databaseService, configService);
+    
+    const results: ProcessingResult[] = [];
+
+    for (const url of urls) {
+      try {
+        if (!url.trim()) {
+          continue;
+        }
+
+        console.log(`Processing website: ${url}`);
+
+        // Create initial document record
+        const { data: document, error: createError } = await req.supabaseClient
+          .from('documents')
+          .insert({
+            title: new URL(url).hostname,
+            content_type: 'website',
+            source_url: url,
+            user_id: req.user.id,
+            collection_id: options?.collectionId || null,
+            processing_status: 'queued'
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          throw createError;
+        }
+
+        // Process the website
+        const success = await websiteProcessor.processWebsite({
+          url,
+          document_id: document.id,
+          user_id: req.user.id,
+          collection_id: options?.collectionId
+        });
+
+        results.push({
+          id: document.id,
+          title: document.title,
+          status: success ? 'completed' : 'error',
+          message: success ? 'Website processed successfully' : 'Failed to process website'
+        });
+
+      } catch (urlError) {
+        console.error('Error processing website:', url, urlError);
+        results.push({
+          id: uuidv4(),
+          title: url,
+          status: 'error',
+          message: urlError instanceof Error ? urlError.message : 'Unknown error'
+        });
+      }
+    }
     
     res.json(results);
   } catch (error) {
+    console.error('Failed to process websites:', error);
     res.status(500).json({
       message: 'Failed to process websites',
       error: error instanceof Error ? error.message : 'Unknown error'
