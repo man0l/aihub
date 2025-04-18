@@ -13,6 +13,9 @@ import fs from 'fs';
 import path from 'path';
 import { SupabaseClient } from '@supabase/supabase-js';
 import axios from 'axios';
+import mammoth from 'mammoth';
+import pdfParse from 'pdf-parse';
+import { fileTypeFromFile } from 'file-type';
 
 // Import our TypeScript services
 import { ConfigService } from './services/ConfigService.js';
@@ -85,19 +88,39 @@ class DocumentProcessor {
     console.log(`Processing document ${documentId} for user ${userId}`);
     
     try {
+      // Update document status to processing
+      await this.databaseService.updateDocumentStatus(
+        documentId,
+        'processing'
+      );
+
       // Download the document from S3
       const tempFilePath = path.join(this.config.tempDir, `${documentId}-${path.basename(sourceUrl)}`);
       await this.storageService.downloadFile(sourceUrl.replace('s3://', ''), tempFilePath);
       console.log(`Document downloaded to ${tempFilePath}`);
 
-      // TODO: Add document processing logic here
-      // For now, we'll just update the status to show it's been processed
+      // Extract text content from the document
+      const extractedText = await this.extractDocumentContent(tempFilePath);
+      console.log(`Successfully extracted text from document ${documentId}`);
+
+      // Upload extracted text to S3
+      const contentKey = `extracted-content/${userId}/${documentId}.txt`;
+      const contentUrl = await this.storageService.uploadString(
+        extractedText,
+        contentKey,
+        'text/plain'
+      );
+      console.log(`Extracted text uploaded to S3: ${contentUrl}`);
+
+      // Update document with extracted content
       const updateResult = await this.databaseService.updateDocumentStatus(
         documentId,
         'completed',
         {
           processing_status: 'completed',
-          // Add any additional fields that would be populated during processing
+          original_content: sourceUrl, // Original file URL
+          transcription: extractedText, // Store the extracted text directly
+          extracted_content_url: contentUrl // URL to the extracted text file
         }
       );
 
@@ -124,6 +147,61 @@ class DocumentProcessor {
       );
       
       throw error;
+    }
+  }
+
+  /**
+   * Extract text content from a document file
+   * @param filePath - Path to the document file
+   * @returns Extracted text content
+   */
+  private async extractDocumentContent(filePath: string): Promise<string> {
+    console.log(`Extracting content from file: ${filePath}`);
+    
+    try {
+      // First try to determine file type using file-type library for more accurate detection
+      const fileType = await fileTypeFromFile(filePath);
+      // Get extension from the file path as fallback
+      const extension = path.extname(filePath).toLowerCase();
+      
+      // Use detected mime type if available, or fallback to extension-based detection
+      const mimeType = fileType?.mime || '';
+      
+      // Handle different file types
+      if (mimeType.includes('pdf') || extension === '.pdf') {
+        // PDF files
+        const pdfBuffer = fs.readFileSync(filePath);
+        const pdfData = await pdfParse(pdfBuffer);
+        return pdfData.text;
+      } 
+      else if (mimeType.includes('msword') || mimeType.includes('officedocument.wordprocessing') || 
+               extension === '.docx' || extension === '.doc') {
+        // Word documents
+        const docBuffer = fs.readFileSync(filePath);
+        const result = await mammoth.extractRawText({ buffer: docBuffer });
+        return result.value;
+      } 
+      else if (mimeType.includes('text/plain') || extension === '.txt' || extension === '.rtf') {
+        // Text files
+        return fs.readFileSync(filePath, 'utf8');
+      } 
+      else if (mimeType.includes('excel') || mimeType.includes('spreadsheet') || 
+               extension === '.xlsx' || extension === '.xls' || extension === '.ods') {
+        // Spreadsheets (would need xlsx library)
+        return `[This is a spreadsheet file. Text extraction requires specific processing.]`;
+      } 
+      else {
+        // For other file types, try to read as text but warn about potential issues
+        console.warn(`Unsupported file type: ${mimeType || extension}, attempting to read as text`);
+        try {
+          return fs.readFileSync(filePath, 'utf8');
+        } catch (readError) {
+          throw new Error(`Unable to extract text from unsupported file type: ${mimeType || extension}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error extracting document content:', error);
+      throw new Error(`Failed to extract document content: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 }
