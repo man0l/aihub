@@ -5,4 +5,5 @@ export interface VideoDownloaderInterface {
   getFormats(videoUrl: string): Promise<VideoFormat[]>;
   getBestAudioFormat(formats: VideoFormat[]): VideoFormat | null;
   downloadAudio(url: string, format: VideoFormat): Promise<NodeJS.ReadableStream>;
+  downloadCaptions(videoId: string): Promise<string | null>;
 } 

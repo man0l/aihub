@@ -52,6 +52,7 @@ export interface VideoDownloader {
     outputPath: string,
     onProgress?: (progress: DownloadProgress) => void
   ): Promise<void>;
+  downloadCaptions(videoId: string): Promise<string | null>;
 }
 
 export interface FileManager {

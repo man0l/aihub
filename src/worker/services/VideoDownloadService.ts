@@ -10,8 +10,12 @@ import {
   ProgressTracker,
   DownloaderOptions
 } from './interfaces/VideoServices.js';
+import { DefaultCaptionParserFactory } from './factories/CaptionParserFactory.js';
+import { CaptionService } from './CaptionService.js';
 
 export class VideoDownloadService {
+  private readonly captionService: CaptionService;
+
   constructor(
     private readonly infoProvider: VideoInfoProvider,
     private readonly formatSelector: VideoFormatSelector,
@@ -19,7 +23,9 @@ export class VideoDownloadService {
     private readonly fileManager: FileManager,
     private readonly progressTracker: ProgressTracker,
     private readonly options: DownloaderOptions = {}
-  ) {}
+  ) {
+    this.captionService = new CaptionService(new DefaultCaptionParserFactory());
+  }
 
   async downloadVideo(videoId: string, outputDir: string): Promise<string> {
     const outputFilePath = path.join(outputDir, `${videoId}.mp4`);
@@ -92,6 +98,20 @@ export class VideoDownloadService {
       };
     } catch (error) {
       throw new Error(`Failed to get video info: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Downloads and extracts transcription from video captions
+   * @param videoId The ID of the video to get captions from
+   * @returns The extracted transcription text, or null if no captions available
+   */
+  async getTranscription(videoId: string): Promise<string | null> {
+    try {
+      return await this.downloader.downloadCaptions(videoId);
+    } catch (error) {
+      console.error(`Failed to get transcription for video ${videoId}:`, error);
+      return null;
     }
   }
 } 

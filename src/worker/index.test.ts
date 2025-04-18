@@ -188,9 +188,10 @@ describe('VideoProcessor', () => {
     
     const mockStorageService = {
       uploadFile: jest.fn().mockImplementation(() => Promise.resolve('https://example.com/test.txt')),
-      uploadString: jest.fn(),
-      downloadFile: jest.fn(),
-      getString: jest.fn()
+      uploadString: jest.fn().mockImplementation(() => Promise.resolve('https://example.com/test.txt')),
+      downloadFile: jest.fn().mockImplementation(() => Promise.resolve('/tmp/test.txt')),
+      getString: jest.fn().mockImplementation(() => Promise.resolve('test content')),
+      setBucket: jest.fn()
     };
     
     const mockDatabaseService = {

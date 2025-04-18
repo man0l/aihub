@@ -95,6 +95,11 @@ export class YtDlpVideoDownloaderAdapter implements VideoDownloaderInterface {
     }
   }
 
+  async downloadCaptions(videoId: string): Promise<string | null> {
+    // Delegate to the YtDlpAdapter's implementation
+    return this.ytDlpAdapter.downloadCaptions(videoId);
+  }
+
   private extractVideoId(url: string): string {
     const match = url.match(/[?&]v=([^&]+)/);
     if (!match) throw new Error('Invalid YouTube URL');

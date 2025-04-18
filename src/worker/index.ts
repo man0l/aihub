@@ -12,6 +12,7 @@ import ytdl from '@distube/ytdl-core';
 import fs from 'fs';
 import path from 'path';
 import { SupabaseClient } from '@supabase/supabase-js';
+import axios from 'axios';
 
 // Import our TypeScript services
 import { ConfigService } from './services/ConfigService.js';
@@ -20,6 +21,8 @@ import { YouTubeService } from './services/YouTubeService.js';
 import { StorageService } from './services/StorageService.js';
 import { DatabaseService } from './services/DatabaseService.js';
 import { WebsiteProcessor } from './services/WebsiteProcessor.js';
+import { StorageServiceFactory } from './services/StorageServiceFactory.js';
+import { IStorageService } from './services/interfaces/IStorageService.js';
 
 // Export all classes/services that are used in tests
 export { ConfigService } from './services/ConfigService.js';
@@ -53,11 +56,16 @@ interface WebsiteJob {
  */
 class VideoProcessor {
   private youtubeService: YouTubeService;
-  private storageService: StorageService;
+  private storageService: IStorageService;
   private databaseService: DatabaseService;
   private config: ConfigService;
   
-  constructor(youtubeService: YouTubeService, storageService: StorageService, databaseService: DatabaseService, configService: ConfigService) {
+  constructor(
+    youtubeService: YouTubeService, 
+    storageService: IStorageService,
+    databaseService: DatabaseService, 
+    configService: ConfigService
+  ) {
     this.youtubeService = youtubeService;
     this.storageService = storageService;
     this.databaseService = databaseService;
@@ -325,27 +333,35 @@ export { Worker };
  */
 class Application {
   private configService: ConfigService;
-  private clientFactory: ClientFactory;
   private supabaseClient: SupabaseClient;
+  private storageService: IStorageService;
   private youtubeService: YouTubeService;
-  private storageService: StorageService;
   private databaseService: DatabaseService;
   private videoProcessor: VideoProcessor;
   private websiteProcessor: WebsiteProcessor;
   private worker: Worker;
   
   constructor() {
-    // Initialize services
+    // Create config service first
     this.configService = new ConfigService();
-    this.clientFactory = new ClientFactory(this.configService);
     
-    // Create clients
-    this.supabaseClient = this.clientFactory.createSupabaseClient();
-    const s3Client = this.clientFactory.createS3Client();
-    const axiosClient = this.clientFactory.createAxiosClient();
+    // Create Supabase client
+    this.supabaseClient = createClient(
+      this.configService.supabaseUrl,
+      this.configService.supabaseKey
+    );
     
     // Create services
-    this.storageService = new StorageService(this.configService);
+    this.storageService = StorageServiceFactory.getStorageService('rawMedia', this.configService);
+    
+    // Create axios client for YouTube API
+    const axiosClient = axios.create({
+      baseURL: 'https://www.googleapis.com/youtube/v3',
+      params: {
+        key: this.configService.youtubeApiKey
+      }
+    });
+    
     this.youtubeService = new YouTubeService(this.configService, axiosClient, 'yt-dlp');
     this.databaseService = new DatabaseService(this.supabaseClient);
     

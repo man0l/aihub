@@ -54,4 +54,9 @@ export class YtdlAdapter implements VideoDownloaderInterface {
     });
     return stream;
   }
+
+  async downloadCaptions(videoId: string): Promise<string | null> {
+    // Basic implementation that returns no captions
+    return null;
+  }
 } 

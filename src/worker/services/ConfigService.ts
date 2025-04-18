@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import { StorageServiceConfig, StorageConfig } from './interfaces/StorageConfig.js';
 
 /**
  * Config Service - Responsible for environment variables and configuration
@@ -10,17 +11,9 @@ export class ConfigService {
   supabaseUrl: string;
   supabaseKey: string;
 
-  // AWS
-  s3Region: string;
-  s3AccessKey: string;
-  s3SecretKey: string;
-  awsEndpoint: string | undefined;
-
-  // S3 buckets
-  projectPrefix: string;
-  rawMediaBucket: string;
-  processedTranscriptsBucket: string;
-  s3Bucket: string; // For backward compatibility
+  // Storage Configuration
+  private storageConfig!: StorageConfig;
+  private storageServiceConfig!: StorageServiceConfig;
 
   // API keys
   openaiApiKey: string | undefined;
@@ -38,19 +31,8 @@ export class ConfigService {
     this.supabaseUrl = process.env.VITE_SUPABASE_URL || '';
     this.supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
     
-    // AWS
-    this.s3Region = process.env.AWS_REGION || '';
-    this.s3AccessKey = process.env.AWS_ACCESS_KEY_ID || '';
-    this.s3SecretKey = process.env.AWS_SECRET_ACCESS_KEY || '';
-    this.awsEndpoint = process.env.AWS_ENDPOINT;
-    
-    // S3 buckets
-    this.projectPrefix = process.env.PROJECT_PREFIX || '';
-    this.rawMediaBucket = `${this.projectPrefix}-${process.env.RAW_MEDIA_BUCKET}`;
-    this.processedTranscriptsBucket = `${this.projectPrefix}-${process.env.PROCESSED_TRANSCRIPTS_BUCKET}`;
-    
-    // Default to raw media bucket for backward compatibility
-    this.s3Bucket = this.rawMediaBucket;
+    // Initialize Storage Configurations
+    this.initializeStorageConfig();
     
     // API keys
     this.openaiApiKey = process.env.VITE_OPENAI_API_KEY;
@@ -65,19 +47,57 @@ export class ConfigService {
   }
 
   /**
+   * Initialize storage configuration from environment variables
+   */
+  private initializeStorageConfig(): void {
+    const projectPrefix = process.env.PROJECT_PREFIX || '';
+
+    this.storageConfig = {
+      region: process.env.AWS_REGION || '',
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+      endpoint: process.env.AWS_ENDPOINT,
+      bucket: '' // This will be set by the storage service
+    };
+
+    this.storageServiceConfig = {
+      projectPrefix,
+      buckets: {
+        rawMedia: `${projectPrefix}-${process.env.RAW_MEDIA_BUCKET}`,
+        processedTranscripts: `${projectPrefix}-${process.env.PROCESSED_TRANSCRIPTS_BUCKET}`,
+        documents: process.env.DOCUMENTS_BUCKET ? `${projectPrefix}-${process.env.DOCUMENTS_BUCKET}` : undefined
+      }
+    };
+  }
+
+  /**
+   * Get storage configuration
+   */
+  getStorageConfig(): StorageConfig {
+    return { ...this.storageConfig };
+  }
+
+  /**
+   * Get storage service configuration
+   */
+  getStorageServiceConfig(): StorageServiceConfig {
+    return { ...this.storageServiceConfig };
+  }
+
+  /**
    * Validates that all required environment variables are set
    */
   private validateEnvironment(): void {
     const requiredVars = [
       { name: 'VITE_SUPABASE_URL', value: this.supabaseUrl },
       { name: 'SUPABASE_SERVICE_ROLE_KEY', value: this.supabaseKey },
-      { name: 'AWS_REGION', value: this.s3Region },
-      { name: 'AWS_ACCESS_KEY_ID', value: this.s3AccessKey },
-      { name: 'AWS_SECRET_ACCESS_KEY', value: this.s3SecretKey },
+      { name: 'AWS_REGION', value: this.storageConfig.region },
+      { name: 'AWS_ACCESS_KEY_ID', value: this.storageConfig.accessKeyId },
+      { name: 'AWS_SECRET_ACCESS_KEY', value: this.storageConfig.secretAccessKey },
       { name: 'VITE_YOUTUBE_API_KEY', value: this.youtubeApiKey },
-      { name: 'PROJECT_PREFIX', value: this.projectPrefix },
-      { name: 'RAW_MEDIA_BUCKET', value: this.rawMediaBucket },
-      { name: 'PROCESSED_TRANSCRIPTS_BUCKET', value: this.processedTranscriptsBucket }
+      { name: 'PROJECT_PREFIX', value: this.storageServiceConfig.projectPrefix },
+      { name: 'RAW_MEDIA_BUCKET', value: this.storageServiceConfig.buckets.rawMedia },
+      { name: 'PROCESSED_TRANSCRIPTS_BUCKET', value: this.storageServiceConfig.buckets.processedTranscripts }
     ];
     
     const missingVars = requiredVars.filter(({ value }) => !value);
@@ -111,5 +131,47 @@ export class ConfigService {
     } catch (error) {
       console.error(`Error cleaning up temporary file ${filePath}:`, error);
     }
+  }
+
+  /**
+   * @deprecated Use getStorageServiceConfig().projectPrefix instead
+   */
+  get projectPrefix(): string {
+    return this.storageServiceConfig.projectPrefix;
+  }
+
+  /**
+   * @deprecated Use getStorageConfig().region instead
+   */
+  get s3Region(): string {
+    return this.storageConfig.region;
+  }
+
+  /**
+   * @deprecated Use getStorageConfig().accessKeyId instead
+   */
+  get s3AccessKey(): string {
+    return this.storageConfig.accessKeyId;
+  }
+
+  /**
+   * @deprecated Use getStorageConfig().secretAccessKey instead
+   */
+  get s3SecretKey(): string {
+    return this.storageConfig.secretAccessKey;
+  }
+
+  /**
+   * @deprecated Use getStorageServiceConfig().buckets.rawMedia instead
+   */
+  get rawMediaBucket(): string {
+    return this.storageServiceConfig.buckets.rawMedia;
+  }
+
+  /**
+   * @deprecated Use getStorageServiceConfig().buckets.processedTranscripts instead
+   */
+  get processedTranscriptsBucket(): string {
+    return this.storageServiceConfig.buckets.processedTranscripts;
   }
 } 

@@ -1,5 +1,7 @@
 import { spawn } from 'child_process';
 import { createWriteStream } from 'fs';
+import fs from 'fs';
+import path from 'path';
 import {
   VideoInfoProvider,
   VideoFormatSelector,
@@ -9,12 +11,16 @@ import {
   DownloadProgress,
   DownloaderOptions
 } from '../interfaces/VideoServices.js';
+import { DefaultCaptionParserFactory } from '../factories/CaptionParserFactory.js';
+import { CaptionService } from '../CaptionService.js';
 
 export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, VideoDownloader {
   private options: DownloaderOptions;
+  private captionService: CaptionService;
 
   constructor(options: DownloaderOptions = {}) {
     this.options = options;
+    this.captionService = new CaptionService(new DefaultCaptionParserFactory());
   }
 
   async getVideoInfo(videoId: string): Promise<VideoInfo> {
@@ -126,6 +132,63 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
           return;
         }
         resolve();
+      });
+    });
+  }
+
+  async downloadCaptions(videoId: string): Promise<string | null> {
+    return new Promise((resolve, reject) => {
+      const tempDir = path.join(process.cwd(), 'temp');
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+
+      // Use yt-dlp to download subtitles
+      const ytDlp = spawn('yt-dlp', [
+        `https://www.youtube.com/watch?v=${videoId}`,
+        '--write-sub',
+        '--write-auto-sub',
+        '--sub-lang', 'en',
+        '--skip-download',
+        '--sub-format', 'vtt',
+        '-o', path.join(tempDir, '%(id)s.%(ext)s')
+      ]);
+
+      let stderr = '';
+
+      ytDlp.stderr.on('data', (data) => {
+        stderr += data;
+      });
+
+      ytDlp.on('close', async (code) => {
+        if (code !== 0) {
+          reject(new Error(`yt-dlp failed with code ${code}: ${stderr}`));
+          return;
+        }
+
+        try {
+          // Look for the subtitle file
+          const files = fs.readdirSync(tempDir);
+          const subtitleFile = files.find(f => f.startsWith(videoId) && (f.endsWith('.vtt') || f.endsWith('.srt')));
+          
+          if (!subtitleFile) {
+            resolve(null);
+            return;
+          }
+
+          // Read and parse the subtitle file
+          const subtitlePath = path.join(tempDir, subtitleFile);
+          const content = fs.readFileSync(subtitlePath, 'utf-8');
+          
+          // Clean up the temp file
+          fs.unlinkSync(subtitlePath);
+
+          // Use our CaptionService to extract clean transcription
+          const transcription = this.captionService.extractTranscription(content);
+          resolve(transcription);
+        } catch (error) {
+          reject(new Error(`Failed to process subtitles: ${error instanceof Error ? error.message : String(error)}`));
+        }
       });
     });
   }

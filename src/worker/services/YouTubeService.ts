@@ -5,6 +5,9 @@ import { AxiosInstance } from 'axios';
 import { ConfigService } from './ConfigService.js';
 import { VideoDownloaderFactory, DownloaderType } from './adapters/VideoDownloaderFactory.js';
 import { VideoFormat, VideoInfo } from './interfaces/VideoServices.js';
+import { YtDlpAdapter } from './adapters/YtDlpAdapter.js';
+import { DefaultCaptionParserFactory } from './factories/CaptionParserFactory.js';
+import { CaptionService } from './CaptionService.js';
 
 /**
  * YouTube Service - Responsible for downloading and processing YouTube videos
@@ -14,6 +17,7 @@ export class YouTubeService {
   private axiosClient: AxiosInstance;
   private downloaderFactory: VideoDownloaderFactory;
   private downloaderType: DownloaderType;
+  private captionService: CaptionService;
   
   constructor(
     configService: ConfigService, 
@@ -24,6 +28,7 @@ export class YouTubeService {
     this.axiosClient = axiosClient;
     this.downloaderFactory = VideoDownloaderFactory.getInstance();
     this.downloaderType = downloaderType;
+    this.captionService = new CaptionService(new DefaultCaptionParserFactory());
   }
 
   /**
@@ -178,53 +183,12 @@ export class YouTubeService {
   }
   
   /**
-   * Fetches the transcription for a YouTube video using the YouTube API
+   * Fetches the transcription for a YouTube video using the configured downloader
    */
   async fetchTranscription(videoId: string): Promise<string | null> {
     try {
-      const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-      try {
-        const downloader = this.downloaderFactory.getDownloader(this.downloaderType);
-        const info = await downloader.getInfo(videoUrl);
-        
-        // Get available captions/tracks from the API response
-        const videoDetailsUrl = `https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId=${videoId}&key=${this.config.youtubeApiKey}`;
-        const captionsResponse = await this.axiosClient.get(videoDetailsUrl);
-        const tracks = captionsResponse.data.items || [];
-        
-        if (tracks.length === 0) {
-          console.log(`No caption tracks found for video ${videoId}`);
-          return null;
-        }
-        
-        // Prefer English captions, fall back to first available
-        const englishTrack = tracks.find((track: any) => 
-          track.snippet.language === 'en' || 
-          track.snippet.language === 'en-US' || 
-          track.snippet.trackName?.toLowerCase().includes('english')
-        );
-        
-        const captionTrack = englishTrack || tracks[0];
-        
-        if (!captionTrack?.id) {
-          console.log(`No valid caption track found for video ${videoId}`);
-          return null;
-        }
-        
-        // Fetch the actual captions
-        const captionUrl = `https://www.googleapis.com/youtube/v3/captions/${captionTrack.id}?key=${this.config.youtubeApiKey}`;
-        const captionResponse = await this.axiosClient.get(captionUrl);
-        
-        if (!captionResponse.data) {
-          return null;
-        }
-        
-        // Parse the captions
-        return this.parseCaptionData(captionResponse.data);
-      } catch (infoError) {
-        console.error(`Error getting caption info for ${videoId}:`, infoError);
-        return null;
-      }
+      const downloader = this.downloaderFactory.getDownloader(this.downloaderType);
+      return await downloader.downloadCaptions(videoId);
     } catch (error) {
       console.error(`Error fetching transcription for video ${videoId}:`, error);
       return null;

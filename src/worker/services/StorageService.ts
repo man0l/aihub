@@ -1,6 +1,8 @@
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { ConfigService } from './ConfigService.js';
+import { IStorageService } from './interfaces/IStorageService.js';
+import { StorageConfig } from './interfaces/StorageConfig.js';
 import fs from 'fs';
 import path from 'path';
 import { Readable } from 'stream';
@@ -8,28 +10,37 @@ import { Readable } from 'stream';
 /**
  * Storage Service - Responsible for S3 operations
  */
-export class StorageService {
+export class StorageService implements IStorageService {
   private s3Client: S3Client;
-  private configService: ConfigService;
+  private currentBucket: string;
+  private readonly storageConfig: StorageConfig;
 
-  constructor(configService: ConfigService) {
-    this.configService = configService;
+  constructor(private configService: ConfigService) {
+    this.storageConfig = configService.getStorageConfig();
+    this.currentBucket = ''; // Will be set via setBucket
 
     const clientConfig: any = {
-      region: this.configService.s3Region,
+      region: this.storageConfig.region,
       credentials: {
-        accessKeyId: this.configService.s3AccessKey,
-        secretAccessKey: this.configService.s3SecretKey,
+        accessKeyId: this.storageConfig.accessKeyId,
+        secretAccessKey: this.storageConfig.secretAccessKey,
       }
     };
 
-    // Add endpoint if specified (for local development with MinIO or other S3-compatible services)
-    if (this.configService.awsEndpoint) {
-      clientConfig.endpoint = this.configService.awsEndpoint;
+    if (this.storageConfig.endpoint) {
+      clientConfig.endpoint = this.storageConfig.endpoint;
       clientConfig.forcePathStyle = true;
     }
 
     this.s3Client = new S3Client(clientConfig);
+  }
+
+  /**
+   * Sets the current bucket for operations
+   * @param bucket - The bucket name to use
+   */
+  setBucket(bucket: string): void {
+    this.currentBucket = bucket;
   }
 
   /**
@@ -39,6 +50,10 @@ export class StorageService {
    * @returns The URL of the uploaded file
    */
   async uploadFile(filePath: string, key: string): Promise<string> {
+    if (!this.currentBucket) {
+      throw new Error('Bucket not set. Call setBucket() before performing operations.');
+    }
+
     const fileStream = fs.createReadStream(filePath);
     const fileExtension = path.extname(filePath);
     const contentType = this.getContentType(fileExtension);
@@ -46,7 +61,7 @@ export class StorageService {
     const upload = new Upload({
       client: this.s3Client,
       params: {
-        Bucket: this.configService.s3Bucket,
+        Bucket: this.currentBucket,
         Key: key,
         Body: fileStream,
         ContentType: contentType,
@@ -56,7 +71,7 @@ export class StorageService {
     try {
       const result = await upload.done();
       console.log(`File uploaded successfully to ${result.Location}`);
-      return result.Location || `s3://${this.configService.s3Bucket}/${key}`;
+      return result.Location || `s3://${this.currentBucket}/${key}`;
     } catch (error) {
       console.error('Error uploading file to S3:', error);
       throw new Error(`Failed to upload file to S3: ${error}`);
@@ -71,8 +86,12 @@ export class StorageService {
    * @returns The URL of the uploaded object
    */
   async uploadString(data: string, key: string, contentType: string = 'application/json'): Promise<string> {
+    if (!this.currentBucket) {
+      throw new Error('Bucket not set. Call setBucket() before performing operations.');
+    }
+
     const params = {
-      Bucket: this.configService.s3Bucket,
+      Bucket: this.currentBucket,
       Key: key,
       Body: data,
       ContentType: contentType,
@@ -81,7 +100,7 @@ export class StorageService {
     try {
       const command = new PutObjectCommand(params);
       await this.s3Client.send(command);
-      return `s3://${this.configService.s3Bucket}/${key}`;
+      return `s3://${this.currentBucket}/${key}`;
     } catch (error) {
       console.error('Error uploading string data to S3:', error);
       throw new Error(`Failed to upload string data to S3: ${error}`);
@@ -95,8 +114,12 @@ export class StorageService {
    * @returns The path to the downloaded file
    */
   async downloadFile(key: string, outputPath: string): Promise<string> {
+    if (!this.currentBucket) {
+      throw new Error('Bucket not set. Call setBucket() before performing operations.');
+    }
+
     const command = new GetObjectCommand({
-      Bucket: this.configService.s3Bucket,
+      Bucket: this.currentBucket,
       Key: key,
     });
 
@@ -129,8 +152,12 @@ export class StorageService {
    * @returns The string content of the object
    */
   async getString(key: string): Promise<string> {
+    if (!this.currentBucket) {
+      throw new Error('Bucket not set. Call setBucket() before performing operations.');
+    }
+
     const command = new GetObjectCommand({
-      Bucket: this.configService.s3Bucket,
+      Bucket: this.currentBucket,
       Key: key,
     });
 

@@ -1,8 +1,8 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { ConfigService } from './ConfigService.js';
-import { StorageService } from './StorageService.js';
 import { DatabaseService } from './DatabaseService.js';
+import { IStorageService } from './interfaces/IStorageService.js';
 import OpenAI from 'openai';
 
 interface WebsiteMetadata {
@@ -18,13 +18,13 @@ interface WebsiteMetadata {
  * WebsiteProcessor - Responsible for processing website content
  */
 export class WebsiteProcessor {
-  private storageService: StorageService;
+  private storageService: IStorageService;
   private databaseService: DatabaseService;
   private config: ConfigService;
   private openai: OpenAI | null = null;
   
   constructor(
-    storageService: StorageService,
+    storageService: IStorageService,
     databaseService: DatabaseService,
     configService: ConfigService
   ) {
