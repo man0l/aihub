@@ -35,7 +35,7 @@ export { WebsiteProcessor } from './services/WebsiteProcessor.js';
 // Initialize environment variables
 dotenv.config();
 
-// Type definition for queued job
+// Type definitions for queued jobs
 interface VideoJob {
   videoId: string;
   userId: string;
@@ -50,6 +50,86 @@ interface WebsiteJob {
   user_id: string;
   collection_id?: string;
 }
+
+interface DocumentJob {
+  documentId: string;
+  userId: string;
+  sourceUrl: string;
+  collectionId?: string;
+}
+
+/**
+ * Document Processor - Responsible for processing uploaded documents
+ */
+class DocumentProcessor {
+  private storageService: IStorageService;
+  private databaseService: DatabaseService;
+  private config: ConfigService;
+  
+  constructor(
+    storageService: IStorageService,
+    databaseService: DatabaseService,
+    configService: ConfigService
+  ) {
+    this.storageService = storageService;
+    this.databaseService = databaseService;
+    this.config = configService;
+  }
+
+  /**
+   * Process a document job from the queue
+   */
+  async processDocument(job: DocumentJob) {
+    const { documentId, userId, sourceUrl } = job;
+    
+    console.log(`Processing document ${documentId} for user ${userId}`);
+    
+    try {
+      // Download the document from S3
+      const tempFilePath = path.join(this.config.tempDir, `${documentId}-${path.basename(sourceUrl)}`);
+      await this.storageService.downloadFile(sourceUrl.replace('s3://', ''), tempFilePath);
+      console.log(`Document downloaded to ${tempFilePath}`);
+
+      // TODO: Add document processing logic here
+      // For now, we'll just update the status to show it's been processed
+      const updateResult = await this.databaseService.updateDocumentStatus(
+        documentId,
+        'completed',
+        {
+          processing_status: 'completed',
+          // Add any additional fields that would be populated during processing
+        }
+      );
+
+      if (updateResult.error) {
+        throw new Error(`Failed to update document status: ${updateResult.error.message}`);
+      }
+
+      // Clean up temporary file
+      this.config.cleanupTempFiles(tempFilePath);
+      
+      console.log(`Document processing complete for ${documentId}`);
+      return { success: true, document: { id: documentId } };
+    } catch (error) {
+      console.error(`Error processing document ${documentId}:`, error);
+      
+      // Update document status to error
+      await this.databaseService.updateDocumentStatus(
+        documentId,
+        'error',
+        {
+          processing_status: 'error',
+          error_message: error instanceof Error ? error.message : 'Unknown error'
+        }
+      );
+      
+      throw error;
+    }
+  }
+}
+
+// Export DocumentProcessor class
+export { DocumentProcessor };
 
 /**
  * Video Processor - Responsible for processing YouTube videos
@@ -177,12 +257,19 @@ export { VideoProcessor };
 class Worker {
   private videoProcessor: VideoProcessor;
   private websiteProcessor: WebsiteProcessor;
+  private documentProcessor: DocumentProcessor;
   private databaseService: DatabaseService;
   private isRunning: boolean;
   
-  constructor(videoProcessor: VideoProcessor, websiteProcessor: WebsiteProcessor, databaseService: DatabaseService) {
+  constructor(
+    videoProcessor: VideoProcessor, 
+    websiteProcessor: WebsiteProcessor, 
+    documentProcessor: DocumentProcessor,
+    databaseService: DatabaseService
+  ) {
     this.videoProcessor = videoProcessor;
     this.websiteProcessor = websiteProcessor;
+    this.documentProcessor = documentProcessor;
     this.databaseService = databaseService;
     this.isRunning = false;
   }
@@ -197,25 +284,9 @@ class Worker {
     }
     
     this.isRunning = true;
-    console.log('Video processing worker started');
+    console.log('Worker started');
     
-    // Process messages in a loop
-    while (this.isRunning) {
-      try {
-        // Process video queue
-        await this.processVideoQueue();
-        
-        // Process website queue
-        await this.processWebsiteQueue();
-        
-        // Wait before checking again
-        await this.sleep(1000);
-      } catch (error) {
-        console.error('Error processing queue:', error);
-        // Still wait before retrying
-        await this.sleep(5000);
-      }
-    }
+    await this.processQueues();
   }
   
   /**
@@ -318,6 +389,74 @@ class Worker {
   }
   
   /**
+   * Process the document queue
+   */
+  async processDocumentQueue() {
+    // Try to receive a message from the queue
+    const { data, error } = await this.databaseService.receiveDocumentMessage();
+    
+    if (error) {
+      console.error('Error receiving message from document queue:', error);
+      return;
+    }
+    
+    if (!data) {
+      console.log('No messages in document queue, waiting...');
+      return;
+    }
+    
+    console.log(`Received message from document queue: ${data.msg_id}`);
+    
+    try {
+      // Parse the message
+      const messageBody = typeof data.message === 'string' 
+        ? JSON.parse(data.message) 
+        : data.message;
+      
+      console.log('Processing document:', messageBody.documentId || messageBody.document_id);
+      
+      // Process the document
+      await this.documentProcessor.processDocument({
+        documentId: messageBody.documentId || messageBody.document_id,
+        userId: messageBody.userId || messageBody.user_id,
+        sourceUrl: messageBody.sourceUrl || messageBody.source_url,
+        collectionId: messageBody.collectionId || messageBody.collection_id
+      });
+      
+      // Delete the message from the queue
+      await this.databaseService.deleteDocumentMessage(data.msg_id);
+      console.log(`Message ${data.msg_id} deleted from document queue`);
+      
+    } catch (processError) {
+      console.error(`Error processing message ${data.msg_id}:`, processError);
+      
+      // Delete the message to prevent queue blocking
+      await this.databaseService.deleteDocumentMessage(data.msg_id);
+      console.log(`Failed message ${data.msg_id} deleted from document queue to prevent blocking`);
+    }
+  }
+
+  /**
+   * Process messages in a loop
+   */
+  async processQueues() {
+    while (this.isRunning) {
+      try {
+        // Process all queues
+        // await this.processVideoQueue();
+        // await this.processWebsiteQueue();
+        await this.processDocumentQueue();
+        
+        // Wait before checking again
+        await this.sleep(1000);
+      } catch (error) {
+        console.error('Error processing queues:', error);
+        await this.sleep(5000);
+      }
+    }
+  }
+  
+  /**
    * Sleep for a given number of milliseconds
    */
   sleep(ms: number) {
@@ -347,6 +486,7 @@ class Application {
   private databaseService: DatabaseService;
   private videoProcessor: VideoProcessor;
   private websiteProcessor: WebsiteProcessor;
+  private documentProcessor: DocumentProcessor;
   private worker: Worker;
   
   constructor() {
@@ -360,7 +500,7 @@ class Application {
     );
     
     // Create services
-    this.storageService = StorageServiceFactory.getStorageService('rawMedia', this.configService);
+    this.storageService = StorageServiceFactory.getStorageService('documents', this.configService);
     
     // Create axios client for YouTube API
     const axiosClient = axios.create({
@@ -376,21 +516,28 @@ class Application {
     // Create processors
     this.videoProcessor = new VideoProcessor(
       this.youtubeService,
-      this.storageService,
+      StorageServiceFactory.getStorageService('rawMedia', this.configService),
       this.databaseService,
       this.configService
     );
     
     this.websiteProcessor = new WebsiteProcessor(
+      StorageServiceFactory.getStorageService('rawMedia', this.configService),
+      this.databaseService,
+      this.configService
+    );
+
+    this.documentProcessor = new DocumentProcessor(
       this.storageService,
       this.databaseService,
       this.configService
     );
     
-    // Create worker
+    // Create worker with all processors
     this.worker = new Worker(
       this.videoProcessor,
       this.websiteProcessor,
+      this.documentProcessor,
       this.databaseService
     );
     

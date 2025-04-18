@@ -155,6 +155,10 @@ export class DatabaseService {
     return this.receiveMessageFromQueue('website_processing_queue');
   }
   
+  async receiveDocumentMessage(): Promise<QueueResponse> {
+    return this.receiveMessageFromQueue('document_processing_queue');
+  }
+  
   async deleteMessageFromQueue(messageId: string | number, queueName: string = 'video_processing_queue') {
     const msgId = typeof messageId === 'string' 
                  ? parseInt(messageId, 10) 
@@ -173,5 +177,9 @@ export class DatabaseService {
   
   async deleteWebsiteMessage(messageId: string | number) {
     return this.deleteMessageFromQueue(messageId, 'website_processing_queue');
+  }
+
+  async deleteDocumentMessage(messageId: string | number) {
+    return this.deleteMessageFromQueue(messageId, 'document_processing_queue');
   }
 } 

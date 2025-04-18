@@ -5,8 +5,21 @@ import { FolderOpen, Search, Filter, Play, Pause, FileText, Youtube, Globe, Chev
 import { Database } from '../lib/database.types';
 import { cn } from '../lib/utils';
 
-type Document = Database['public']['Tables']['documents']['Row'];
+type Document = Database['public']['Tables']['documents']['Row'] & {
+  short_summary_audio?: string | null;
+  long_summary_audio?: string | null;
+};
 type Collection = Database['public']['Tables']['collections']['Row'];
+
+// Add utility function to decode UTF-8 strings
+const decodeUTF8 = (str: string): string => {
+  try {
+    return decodeURIComponent(escape(str));
+  } catch (e) {
+    console.warn('Failed to decode UTF-8 string:', e);
+    return str;
+  }
+};
 
 export default function Library() {
   const { user } = useAuth();
@@ -20,20 +33,21 @@ export default function Library() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
 
     async function fetchLibraryData() {
+      const userId = user!.id;
       try {
         const [collectionsResponse, documentsResponse] = await Promise.all([
           supabase
             .from('collections')
             .select('*')
-            .eq('user_id', user.id)
+            .eq('user_id', userId)
             .order('name'),
           supabase
             .from('documents')
             .select('*')
-            .eq('user_id', user.id)
+            .eq('user_id', userId)
             .order('created_at', { ascending: false })
         ]);
 
@@ -71,7 +85,7 @@ export default function Library() {
     );
   };
 
-  const handleAudioPlay = (audioUrl: string | null) => {
+  const handleAudioPlay = (audioUrl: string | null | undefined) => {
     if (!audioUrl) return;
     
     if (playingAudio === audioUrl) {
@@ -93,7 +107,7 @@ export default function Library() {
   };
 
   const handleDeleteDocument = async (docId: string) => {
-    if (!user) return;
+    if (!user?.id) return;
 
     try {
       const { error } = await supabase
@@ -214,7 +228,7 @@ export default function Library() {
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-start">
                           <div className="flex-1">
-                            <h3 className="text-sm font-medium text-gray-900">{doc.title}</h3>
+                            <h3 className="text-sm font-medium text-gray-900">{decodeUTF8(doc.title)}</h3>
                             <p className="mt-1 text-sm text-gray-500">
                               {new Date(doc.created_at).toLocaleDateString()}
                             </p>

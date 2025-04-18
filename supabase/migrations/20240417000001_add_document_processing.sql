@@ -1,6 +1,9 @@
 -- Drop existing function
 DROP FUNCTION IF EXISTS public.enqueue_document_processing(uuid, uuid, text, uuid);
 
+-- Create the document processing queue if it doesn't exist
+SELECT pgmq.create_queue('document_processing_queue');
+
 -- Create document processing function
 CREATE OR REPLACE FUNCTION public.enqueue_document_processing(
   p_document_id uuid,

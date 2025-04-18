@@ -28,7 +28,8 @@ import {
   VideoProcessor,
   Worker,
   Application,
-  WebsiteProcessor
+  WebsiteProcessor,
+  DocumentProcessor
 } from './index.js';
 
 // Mock all dependencies
@@ -425,9 +426,12 @@ describe('Worker', () => {
       deleteWebsiteMessage: jest.fn()
     };
     
+    const mockDocumentProcessor = {};
+    
     const worker = new Worker(
       mockVideoProcessor as unknown as VideoProcessor,
       mockWebsiteProcessor as unknown as WebsiteProcessor,
+      mockDocumentProcessor as unknown as DocumentProcessor,
       mockDatabaseService as unknown as DatabaseService
     );
 
@@ -460,9 +464,12 @@ describe('Worker', () => {
       deleteWebsiteMessage: jest.fn()
     };
     
+    const mockDocumentProcessor = {};
+    
     const worker = new Worker(
       mockVideoProcessor as unknown as VideoProcessor,
       mockWebsiteProcessor as unknown as WebsiteProcessor,
+      mockDocumentProcessor as unknown as DocumentProcessor,
       mockDatabaseService as unknown as DatabaseService
     );
     Object.defineProperty(worker, 'isRunning', { value: true });

@@ -5,7 +5,7 @@
  * It simply imports and runs the compiled TypeScript implementation.
  */
 
-import { Application } from './dist/worker/index.js';
+import { Application } from './dist/worker/worker/index.js';
 
 // Create and start the application
 console.log('Starting YouTube Video Processing Worker (TypeScript implementation)');
