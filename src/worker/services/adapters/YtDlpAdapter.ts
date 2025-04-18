@@ -20,7 +20,9 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
 
   constructor(options: DownloaderOptions = {}) {
     this.options = options;
-    this.captionService = new CaptionService(new DefaultCaptionParserFactory());
+    // Get userId from options if available
+    const userId = options.userId as string | undefined;
+    this.captionService = new CaptionService(new DefaultCaptionParserFactory(), userId);
   }
 
   async getVideoInfo(videoId: string): Promise<VideoInfo> {
@@ -184,7 +186,7 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
           fs.unlinkSync(subtitlePath);
 
           // Use our CaptionService to extract clean transcription
-          const transcription = this.captionService.extractTranscription(content);
+          const transcription = await this.captionService.extractTranscription(content, videoId);
           resolve(transcription);
         } catch (error) {
           reject(new Error(`Failed to process subtitles: ${error instanceof Error ? error.message : String(error)}`));

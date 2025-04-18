@@ -72,6 +72,7 @@ export interface DownloaderOptions {
   timeout?: number;
   maxRetries?: number;
   preferredFormat?: string;
+  userId?: string;
 }
 
 export interface TranscriptionProvider {
