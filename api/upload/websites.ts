@@ -1,20 +1,9 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { getUserFromHeader } from '../_utils/auth.js';
 
-// Define an interface for the result items
-interface ProcessingResult {
-  id: string | number;
-  title: string;
-  status: string;
-  message: string;
-}
-
 /**
  * Process website sources
  * POST /api/upload/websites
- * 
- * This endpoint enqueues website URLs for asynchronous processing
- * using PostgreSQL message queue (PGMQ).
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Set CORS headers
@@ -39,71 +28,90 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(401).json({ message: 'Unauthorized', error: authError });
   }
   
-  const { urls, options } = req.body;
+  // Parse request body
+  const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
+  const { urls, options } = body;
 
   if (!Array.isArray(urls) || urls.length === 0) {
     return res.status(400).json({ message: 'No URLs provided' });
   }
 
   try {
-    const results: ProcessingResult[] = [];
+    const results: Array<{
+      id: string;
+      title: string;
+      status: string;
+      message: string;
+    }> = [];
 
     for (const url of urls) {
-      console.log(`Enqueueing website for processing: ${url}`);
+      console.log('Processing website URL:', url);
       
-      try {
-        // Create initial document record with queued status
-        const { data: document, error: createError } = await supabaseClient
-          .from('documents')
-          .insert({
-            title: `Processing: ${new URL(url).hostname}`,
-            content_type: 'website',
-            source_url: url,
-            user_id: user.id,
-            collection_id: options?.collectionId || null,
-            processing_status: 'queued'
-          })
-          .select()
-          .single();
-
-        if (createError) {
-          console.error('Error creating document:', createError);
-          throw createError;
-        }
-
-        console.log('Document created, ID:', document.id);
-        
-        // Enqueue the website for processing using the database function
-        const { data, error } = await supabaseClient.rpc('enqueue_website_processing', {
-          p_url: url,
-          p_user_id: user.id,
-          p_document_id: document.id,
-          p_collection_id: options?.collectionId || null
+      if (!isValidUrl(url)) {
+        results.push({
+          id: '',
+          title: url,
+          status: 'error',
+          message: 'Invalid URL format'
         });
+        continue;
+      }
+      
+      // Create initial document record with queued status
+      const { data: document, error: createError } = await supabaseClient
+        .from('documents')
+        .insert({
+          title: url,
+          content_type: 'website',
+          source_url: url,
+          user_id: user.id,
+          collection_id: options?.collectionId || null,
+          processing_status: 'queued'
+        })
+        .select()
+        .single();
 
-        if (error) {
-          console.error('Error enqueueing website:', error);
-          throw error;
-        }
+      if (createError) {
+        console.error('Error creating document:', createError);
+        results.push({
+          id: '',
+          title: url,
+          status: 'error',
+          message: `Failed to create document: ${createError.message}`
+        });
+        continue;
+      }
 
-        console.log('Website successfully enqueued for processing, job ID:', data);
+      console.log('Document created, ID:', document.id);
+      
+      // Enqueue the website for processing using the database function
+      console.log('Enqueueing website for processing:', url);
+      const { data, error } = await supabaseClient.rpc('enqueue_website_processing', {
+        p_url: url,
+        p_user_id: user.id,
+        p_collection_id: options?.collectionId || null,
+        p_document_id: document.id
+      });
 
+      if (error) {
+        console.error('Error enqueueing website:', error);
         results.push({
           id: document.id,
-          title: document.title,
-          status: 'queued',
-          message: 'Website has been queued for processing'
-        });
-      } catch (urlError) {
-        console.error(`Error processing URL ${url}:`, urlError);
-        
-        results.push({
-          id: 'error',
-          title: `Failed: ${url}`,
+          title: url,
           status: 'error',
-          message: urlError instanceof Error ? urlError.message : 'Unknown error'
+          message: `Failed to enqueue processing: ${error.message}`
         });
+        continue;
       }
+
+      console.log('Website successfully enqueued for processing, job ID:', data);
+
+      results.push({
+        id: document.id,
+        title: url,
+        status: 'queued',
+        message: 'Website has been queued for processing'
+      });
     }
 
     return res.status(200).json(results);
@@ -113,5 +121,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       message: 'Failed to queue websites for processing',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
+  }
+}
+
+/**
+ * Validates a URL
+ */
+function isValidUrl(urlString: string): boolean {
+  try {
+    const url = new URL(urlString);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch (e) {
+    return false;
   }
 } 

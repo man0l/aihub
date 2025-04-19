@@ -30,7 +30,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(401).json({ message: 'Unauthorized', error: authError });
   }
   
-  const { sources, options } = req.body;
+  // Parse request body
+  const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
+  const { sources, options } = body;
 
   if (!Array.isArray(sources) || sources.length === 0) {
     return res.status(400).json({ message: 'No sources provided' });
