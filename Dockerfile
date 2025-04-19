@@ -2,6 +2,17 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Install build dependencies
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    cairo-dev \
+    jpeg-dev \
+    pango-dev \
+    giflib-dev \
+    pixman-dev
+
 # Copy package files
 COPY package*.json ./
 
@@ -20,11 +31,39 @@ FROM node:20-alpine AS production
 
 WORKDIR /app
 
+# Install runtime dependencies and yt-dlp
+RUN apk add --no-cache \
+    python3 \
+    py3-pip \
+    cairo \
+    jpeg \
+    pango \
+    giflib \
+    pixman \
+    && pip3 install --no-cache-dir yt-dlp
+
 # Copy package files
 COPY package*.json ./
 
 # Install production dependencies only
-RUN npm ci --production
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    cairo-dev \
+    jpeg-dev \
+    pango-dev \
+    giflib-dev \
+    pixman-dev \
+    && npm ci --production \
+    && apk del \
+    make \
+    g++ \
+    cairo-dev \
+    jpeg-dev \
+    pango-dev \
+    giflib-dev \
+    pixman-dev
 
 # Copy built files from builder stage
 COPY --from=builder /app/dist/worker/ ./dist/worker/
