@@ -152,8 +152,9 @@ class DocumentProcessor {
         'processing'
       );
 
-      // Parse the S3 URL to extract the bucket and key
+      // Parse the URL to extract the bucket and key
       let s3Key: string;
+      let bucketName: string;
       
       if (sourceUrl.startsWith('s3://')) {
         // Format: s3://bucket-name/path/to/file.ext
@@ -161,16 +162,30 @@ class DocumentProcessor {
         const parts = urlWithoutProtocol.split('/');
         
         // The first part is the bucket name, the rest is the key
-        const bucketName = parts[0];
+        bucketName = parts[0];
         s3Key = parts.slice(1).join('/');
+      } else if (sourceUrl.includes('.amazonaws.com')) {
+        // Format: https://bucket-name.s3.region.amazonaws.com/path/to/file.ext
+        // or: https://s3.region.amazonaws.com/bucket-name/path/to/file.ext
+        const url = new URL(sourceUrl);
+        const pathParts = url.pathname.split('/').filter(p => p);
         
-        // Set the correct bucket
-        this.storageService.setBucket(bucketName);
-        console.log(`Using bucket: ${bucketName}, key: ${s3Key}`);
+        if (url.hostname.includes('.s3.')) {
+          // Virtual hosted-style URL
+          bucketName = url.hostname.split('.')[0];
+          s3Key = pathParts.join('/');
+        } else {
+          // Path-style URL
+          bucketName = pathParts[0];
+          s3Key = pathParts.slice(1).join('/');
+        }
       } else {
-        // Not an S3 URL - this should not happen
         throw new Error(`Invalid source URL format: ${sourceUrl}`);
       }
+      
+      // Set the correct bucket
+      this.storageService.setBucket(bucketName);
+      console.log(`Using bucket: ${bucketName}, key: ${s3Key}`);
 
       // Download the document from S3
       const tempFilePath = path.join(this.config.tempDir, `${documentId}-${path.basename(sourceUrl)}`);
