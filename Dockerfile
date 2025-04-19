@@ -19,9 +19,10 @@ COPY package*.json ./
 # Install dependencies
 RUN npm ci
 
-# Copy source files
+# Copy source files including shared interfaces
 COPY tsconfig*.json ./
 COPY src/worker/ ./src/worker/
+COPY src/shared/ ./src/shared/
 
 # Build the worker
 RUN npm run build:worker
