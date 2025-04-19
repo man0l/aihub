@@ -12,11 +12,12 @@
     "build:worker": "tsc -p tsconfig.worker.json",
     "build:server": "tsc -p tsconfig.server.json",
     "build:vercel": "tsc -p tsconfig.vercel.json",
+    "build:api": "tsc -p tsconfig.vercel.json",
     "worker": "npm run build:worker && node worker.js",
     "server": "npm run build:server && node dist/server/server.js",
     "test": "NODE_OPTIONS=\"--experimental-vm-modules\" jest --config=jest.config.js",
     "test:api": "npx jest --config=src/api/tests/jest.config.ts",
-    "build": "tsc && vite build",
+    "build": "npm run build:api && tsc && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },

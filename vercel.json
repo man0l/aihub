@@ -1,8 +1,13 @@
 {
   "version": 2,
-  "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "nodejs18.x",
+      "memory": 1024
+    }
+  },
   "routes": [
     {
       "src": "/api/youtube/audio/([^/]+)",
