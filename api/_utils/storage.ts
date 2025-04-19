@@ -117,16 +117,25 @@ export class StorageService {
     console.log(`Uploading file to S3 bucket '${bucket}' in region '${region}'`);
 
     try {
+      // Create params for the upload
+      const uploadParams: any = {
+        Bucket: bucket,
+        Key: key,
+        Body: buffer,
+        ContentType: contentType
+      };
+      
+      // Try to set ACL but catch and handle the specific error if ACLs are not allowed
+      try {
+        uploadParams.ACL = 'public-read'; // Make files publicly accessible if allowed
+      } catch (aclError) {
+        console.warn('Setting ACL not attempted as this might not be supported');
+      }
+
       // Create a new Upload
       const upload = new Upload({
         client,
-        params: {
-          Bucket: bucket,
-          Key: key,
-          Body: buffer,
-          ContentType: contentType,
-          ACL: 'public-read' // Make files publicly accessible
-        },
+        params: uploadParams,
       });
 
       // Complete the upload
@@ -149,6 +158,13 @@ export class StorageService {
       return `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
     } catch (error: any) {
       console.error('Error uploading file to S3:', error);
+      
+      // Handle specific ACL errors
+      if (error.name === 'AccessControlListNotSupported' || 
+          (error.message && error.message.includes('bucket does not allow ACLs'))) {
+        console.log('Retrying upload without ACL settings...');
+        return this.uploadBufferWithoutACL(buffer, key, contentType, isDocument);
+      }
       
       // Check for common S3 errors
       if (error.name === 'PermanentRedirect' && error.Endpoint) {
@@ -186,6 +202,82 @@ export class StorageService {
       }
       
       throw new Error(`Failed to upload file to S3: ${error.message || String(error)}`);
+    }
+  }
+
+  /**
+   * Uploads a buffer to S3 without ACL settings
+   * @param buffer - The buffer to upload
+   * @param key - S3 key (object name)
+   * @param contentType - The content type (MIME type)
+   * @param isDocument - Whether this is a document upload
+   * @returns The URL of the uploaded file
+   */
+  private async uploadBufferWithoutACL(buffer: Buffer, key: string, contentType: string, isDocument: boolean = false): Promise<string> {
+    if (!this.isConfigured) {
+      throw new Error('Storage service is not properly configured. AWS credentials may be missing.');
+    }
+
+    const client = isDocument ? this.documentsS3Client : this.mediaS3Client;
+    if (!client) {
+      throw new Error(`S3 client not initialized for ${isDocument ? 'documents' : 'media'} uploads.`);
+    }
+
+    const bucket = isDocument ? this.configService.documentsBucket : this.configService.s3Bucket;
+    const region = isDocument 
+      ? (this.detectedDocumentRegion || this.configService.documentsBucketRegion) 
+      : this.configService.s3BucketRegion;
+
+    console.log(`Uploading file to S3 bucket '${bucket}' in region '${region}' without ACL settings`);
+
+    try {
+      // Create a new Upload without ACL settings
+      const upload = new Upload({
+        client,
+        params: {
+          Bucket: bucket,
+          Key: key,
+          Body: buffer,
+          ContentType: contentType
+          // No ACL setting
+        },
+      });
+
+      // Complete the upload
+      const result = await upload.done();
+      console.log(`File uploaded successfully to ${result.Location || 'S3'} without ACL`);
+      
+      // Return the location or construct the URL
+      if (result.Location) {
+        return result.Location;
+      }
+      
+      // Construct URL based on whether we're using a custom endpoint
+      const endpoint = this.configService.awsEndpoint;
+      if (endpoint && !endpoint.includes('amazonaws.com')) {
+        // For custom S3 endpoints
+        return `${endpoint}/${bucket}/${key}`;
+      }
+      
+      // Standard AWS S3 URL
+      return `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
+    } catch (error: any) {
+      console.error('Error uploading file to S3 without ACL:', error);
+      
+      // Check for common S3 errors and rethrow with helpful messages
+      if (error.name === 'InvalidAccessKeyId') {
+        throw new Error('The AWS Access Key ID is invalid. Please check your credentials.');
+      }
+      
+      if (error.name === 'SignatureDoesNotMatch') {
+        throw new Error('The AWS signature is invalid. Secret key may be incorrect.');
+      }
+      
+      if (error.name === 'NoSuchBucket') {
+        throw new Error(`S3 bucket '${bucket}' does not exist. Please create it first.`);
+      }
+      
+      throw new Error(`Failed to upload file to S3 without ACL: ${error.message || String(error)}`);
     }
   }
 } 
