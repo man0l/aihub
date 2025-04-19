@@ -12,7 +12,8 @@
     "strict": true,
     "noImplicitAny": false,
     "skipLibCheck": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "sourceMap": true
   },
   "include": ["api/**/*.ts"],
   "exclude": ["node_modules", "**/*.test.ts"]
