@@ -187,8 +187,9 @@ class DocumentProcessor {
       this.storageService.setBucket(bucketName);
       console.log(`Using bucket: ${bucketName}, key: ${s3Key}`);
 
-      // Download the document from S3
-      const tempFilePath = path.join(this.config.tempDir, `${documentId}-${decodeURIComponent(path.basename(sourceUrl))}`);
+      // Download the document from S3 using just the document ID and file extension
+      const fileExtension = path.extname(decodeURIComponent(path.basename(sourceUrl)));
+      const tempFilePath = path.join(this.config.tempDir, `${documentId}${fileExtension}`);
       await this.storageService.downloadFile(s3Key, tempFilePath);
       console.log(`Document downloaded to ${tempFilePath}`);
 
