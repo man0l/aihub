@@ -469,22 +469,13 @@ router.post('/files', authenticateUser, upload.array('files'), async (req: Reque
         // Upload file to S3 using the buffer directly
         const fileBuffer = file.buffer;
         
-        // Upload the file buffer directly
-        const s3Url = await storageService.uploadBuffer(
-          fileBuffer,
-          documentKey,
-          file.mimetype
-        );
-        
-        console.log(`File uploaded to S3: ${s3Url}`);
-        
         // Create document record in database
         const { data: document, error: createError } = await req.supabaseClient
           .from('documents')
           .insert({
             title: file.originalname,
             content_type: file.mimetype,
-            source_url: s3Url,
+            source_url: null, // We'll update this after upload
             user_id: req.user.id,
             collection_id: options.collectionId || null,
             processing_status: 'queued',
@@ -497,14 +488,26 @@ router.post('/files', authenticateUser, upload.array('files'), async (req: Reque
           throw createError;
         }
 
-        // Update the document to set video_id equal to document.id
+        // Upload the file buffer directly
+        const s3Url = await storageService.uploadBuffer(
+          fileBuffer,
+          documentKey,
+          file.mimetype
+        );
+        
+        console.log(`File uploaded to S3: ${s3Url}`);
+        
+        // Update the document with the S3 URL and video_id
         const { error: updateError } = await req.supabaseClient
           .from('documents')
-          .update({ video_id: document.id })
+          .update({ 
+            source_url: s3Url,
+            video_id: document.id 
+          })
           .eq('id', document.id);
 
         if (updateError) {
-          console.error('Error updating document video_id:', updateError);
+          console.error('Error updating document with S3 URL:', updateError);
           throw updateError;
         }
     
