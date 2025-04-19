@@ -2,8 +2,8 @@ import { VercelRequest, VercelResponse } from '@vercel/node';
 import { getUserFromHeader } from '../_utils/auth.js';
 import busboy from 'busboy';
 import { Readable } from 'stream';
-import { StorageService } from '../_utils/storage';
-import { ConfigService } from '../_utils/config';
+import { StorageService } from '../_utils/storage.js';
+import { ConfigService } from '../_utils/config.js';
 
 export const config = {
   api: {

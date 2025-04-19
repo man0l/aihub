@@ -1,6 +1,6 @@
 import { S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
-import { ConfigService } from './config';
+import { ConfigService } from './config.js';
 
 /**
  * Storage Service - Responsible for S3 operations
