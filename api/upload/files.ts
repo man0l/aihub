@@ -9,6 +9,9 @@ export const config = {
   },
 };
 
+// Bucket name to use for document storage
+const DOCUMENTS_BUCKET = 'documents';
+
 /**
  * Process file upload sources
  * POST /api/upload/files
@@ -45,6 +48,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   };
 
   try {
+    // Ensure the documents bucket exists
+    const { data: buckets } = await supabaseClient.storage.listBuckets();
+    const documentsBucket = buckets?.find(bucket => bucket.name === DOCUMENTS_BUCKET);
+    
+    if (!documentsBucket) {
+      console.log(`Bucket '${DOCUMENTS_BUCKET}' not found, creating it...`);
+      try {
+        const { error: createBucketError } = await supabaseClient.storage.createBucket(DOCUMENTS_BUCKET, {
+          public: true, // Files will be publicly accessible
+        });
+        
+        if (createBucketError) {
+          console.error('Error creating bucket:', createBucketError);
+          return res.status(500).json({
+            message: 'Failed to create storage bucket',
+            error: createBucketError.message
+          });
+        }
+        
+        console.log(`Bucket '${DOCUMENTS_BUCKET}' created successfully`);
+      } catch (bucketError) {
+        console.error('Error creating bucket:', bucketError);
+        return res.status(500).json({
+          message: 'Failed to create storage bucket',
+          error: bucketError instanceof Error ? bucketError.message : 'Unknown error'
+        });
+      }
+    }
+    
     // Parse the multipart form data using busboy
     const fileResults: FileResult[] = [];
     let options = {};
@@ -92,7 +124,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             // Upload the file to Supabase Storage
             const { data: uploadData, error: uploadError } = await supabaseClient
               .storage
-              .from('documents')
+              .from(DOCUMENTS_BUCKET)
               .upload(fileKey, fileBuffer, {
                 contentType: mimeType,
                 upsert: false,
@@ -113,7 +145,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             // Get the public URL
             const { data: urlData } = supabaseClient
               .storage
-              .from('documents')
+              .from(DOCUMENTS_BUCKET)
               .getPublicUrl(fileKey);
                 
             const fileUrl = urlData.publicUrl;
