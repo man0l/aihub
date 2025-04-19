@@ -18,6 +18,7 @@ env:
   AWS_REGION: us-east-1
   ECS_CLUSTER: bobi-transcribe-demo-cluster
   ECS_SERVICE: bobi-transcribe-demo-worker
+  ECS_TASK_DEFINITION: bobi-transcribe-demo-worker
 
 jobs:
   build-and-push:
@@ -72,18 +73,34 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Verify ECS resources
+        run: |
+          echo "Verifying ECS cluster..."
+          aws ecs describe-clusters --clusters ${{ env.ECS_CLUSTER }} || exit 1
+          
+          echo "Verifying ECS service..."
+          aws ecs describe-services --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE }} || exit 1
+          
+          echo "Getting current task definition..."
+          TASK_DEFINITION=$(aws ecs describe-task-definition \
+            --task-definition ${{ env.ECS_TASK_DEFINITION }} \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+          echo "Current task definition: $TASK_DEFINITION"
+          echo "task_definition=$TASK_DEFINITION" >> $GITHUB_ENV
+
       - name: Update ECS service
         run: |
-          # Update the ECS service with the new image tag
+          echo "Updating ECS service with task definition: ${{ env.task_definition }}"
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER }} \
             --service ${{ env.ECS_SERVICE }} \
-            --force-new-deployment \
-            --task-definition $(aws ecs describe-task-definition \
-              --task-definition $(aws ecs describe-services \
-                --cluster ${{ env.ECS_CLUSTER }} \
-                --services ${{ env.ECS_SERVICE }} \
-                --query 'services[0].taskDefinition' \
-                --output text) \
-              --query 'taskDefinition.taskDefinitionArn' \
-              --output text) 
+            --task-definition ${{ env.task_definition }} \
+            --force-new-deployment
+
+      - name: Wait for service stability
+        run: |
+          echo "Waiting for service to stabilize..."
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE }} 
