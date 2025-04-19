@@ -4,7 +4,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/**/*.ts": {
-      "runtime": "nodejs@22.x",
+      "runtime": "nodejs18.x",
       "memory": 1024
     }
   },
