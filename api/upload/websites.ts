@@ -1,6 +1,14 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { getUserFromHeader } from '../_utils/auth.js';
 
+// Define an interface for the result items
+interface ProcessingResult {
+  id: string | number;
+  title: string;
+  status: string;
+  message: string;
+}
+
 /**
  * Process website sources
  * POST /api/upload/websites
@@ -38,7 +46,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const results = [];
+    const results: ProcessingResult[] = [];
 
     for (const url of urls) {
       console.log(`Enqueueing website for processing: ${url}`);
