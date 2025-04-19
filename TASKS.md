@@ -40,7 +40,7 @@
 - [ ] Developer experience
   - [ ] Set up pre-commit hooks for linting and formatting
   - [ ] Create development containers for consistent environments
-  - [ ] Improve build pipeline and CI/CD workflows
+  - [x] Improve build pipeline and CI/CD workflows
 
 - [ ] Frontend enhancements
   - [ ] Implement responsive design improvements
@@ -138,10 +138,11 @@
 - [x] Basic application layout and navigation
 - [x] Background job queue with PGMQ for asynchronous processing
 - [x] Upgraded AWS SDK from v2 to v3 for improved performance and modularity
+- [x] Docker image for worker component
+- [x] GitHub Actions CI/CD for building and pushing worker Docker image
 
 ### Pending 🔄
 - [ ] Production deployment configuration
-- [ ] CI/CD pipeline setup
 - [ ] Monitoring and alerting for API usage and errors
 - [ ] Backup and disaster recovery procedures
 - [ ] Comprehensive testing suite
