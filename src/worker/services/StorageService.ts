@@ -134,7 +134,7 @@ export class StorageService implements IStorageService {
 
     const command = new GetObjectCommand({
       Bucket: this.currentBucket,
-      Key: key,
+      Key: decodeURIComponent(key),
     });
 
     try {

@@ -168,7 +168,7 @@ class DocumentProcessor {
         // Format: https://bucket-name.s3.region.amazonaws.com/path/to/file.ext
         // or: https://s3.region.amazonaws.com/bucket-name/path/to/file.ext
         const url = new URL(sourceUrl);
-        const pathParts = url.pathname.split('/').filter(p => p);
+        const pathParts = decodeURIComponent(url.pathname).split('/').filter(p => p);
         
         if (url.hostname.includes('.s3.')) {
           // Virtual hosted-style URL
@@ -188,7 +188,7 @@ class DocumentProcessor {
       console.log(`Using bucket: ${bucketName}, key: ${s3Key}`);
 
       // Download the document from S3
-      const tempFilePath = path.join(this.config.tempDir, `${documentId}-${path.basename(sourceUrl)}`);
+      const tempFilePath = path.join(this.config.tempDir, `${documentId}-${decodeURIComponent(path.basename(sourceUrl))}`);
       await this.storageService.downloadFile(s3Key, tempFilePath);
       console.log(`Document downloaded to ${tempFilePath}`);
 
