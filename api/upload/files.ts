@@ -148,34 +148,52 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               return;
             }
             
-            // Enqueue the file for processing
-            const { data, error } = await supabaseClient.rpc('enqueue_file_processing', {
-              p_url: fileUrl,
-              p_file_name: filename,
-              p_mime_type: mimeType,
-              p_user_id: user.id,
-              p_collection_id: (options as any)?.collectionId || null,
-              p_document_id: document.id
-            });
+            // Enqueue the file for processing using the correct function
+            try {
+              // Try enqueue_document_processing first with correct parameters
+              const { data, error } = await supabaseClient.rpc('enqueue_document_processing', {
+                p_document_id: document.id,
+                p_user_id: user.id,
+                p_source_url: fileUrl,
+                p_collection_id: (options as any)?.collectionId || null,
+                p_processing_options: (options as any)?.processingOptions || null
+              });
 
-            if (error) {
-              console.error('Error enqueueing file:', error);
+              if (error) {
+                console.error('Error enqueueing file with enqueue_document_processing:', error);
+                
+                // Fallback to enqueue_file_processing if available
+                const { data: fbData, error: fbError } = await supabaseClient.rpc('enqueue_file_processing', {
+                  p_document_id: document.id,
+                  p_user_id: user.id,
+                  p_url: fileUrl,
+                  p_file_name: filename,
+                  p_mime_type: mimeType,
+                  p_collection_id: (options as any)?.collectionId || null
+                });
+                
+                if (fbError) {
+                  throw fbError;
+                }
+              }
+
+              fileResults.push({
+                id: document.id,
+                title: filename || 'Unknown file',
+                status: 'queued',
+                message: 'File has been queued for processing'
+              });
+            } catch (processingError) {
+              console.error('Error enqueueing file for processing:', processingError);
               fileResults.push({
                 id: document.id,
                 title: filename || 'Unknown file',
                 status: 'error',
-                message: `Failed to enqueue processing: ${error.message}`
+                message: `Failed to enqueue processing: ${processingError instanceof Error ? processingError.message : String(processingError)}`
               });
               failedFiles++;
               return;
             }
-
-            fileResults.push({
-              id: document.id,
-              title: filename || 'Unknown file',
-              status: 'queued',
-              message: 'File has been queued for processing'
-            });
           } catch (error) {
             console.error('Error processing file:', error);
             fileResults.push({
