@@ -51,6 +51,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const configService = new ConfigService();
     const storageService = new StorageService(configService);
     
+    // Validate AWS credentials before proceeding
+    const credentialValidation = configService.validateAwsCredentials();
+    if (!credentialValidation.valid) {
+      console.error('AWS credential validation failed:', credentialValidation.message);
+      return res.status(500).json({
+        message: 'File upload service not properly configured',
+        error: credentialValidation.message
+      });
+    }
+    
     // Parse the multipart form data using busboy
     const fileResults: FileResult[] = [];
     let options = {};
