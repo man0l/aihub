@@ -2,15 +2,14 @@ import { VercelRequest, VercelResponse } from '@vercel/node';
 import { getUserFromHeader } from '../_utils/auth.js';
 import busboy from 'busboy';
 import { Readable } from 'stream';
+import { StorageService } from '../_utils/storage';
+import { ConfigService } from '../_utils/config';
 
 export const config = {
   api: {
     bodyParser: false,
   },
 };
-
-// Bucket name to use for document storage
-const DOCUMENTS_BUCKET = 'documents';
 
 /**
  * Process file upload sources
@@ -48,34 +47,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   };
 
   try {
-    // Ensure the documents bucket exists
-    const { data: buckets } = await supabaseClient.storage.listBuckets();
-    const documentsBucket = buckets?.find(bucket => bucket.name === DOCUMENTS_BUCKET);
-    
-    if (!documentsBucket) {
-      console.log(`Bucket '${DOCUMENTS_BUCKET}' not found, creating it...`);
-      try {
-        const { error: createBucketError } = await supabaseClient.storage.createBucket(DOCUMENTS_BUCKET, {
-          public: true, // Files will be publicly accessible
-        });
-        
-        if (createBucketError) {
-          console.error('Error creating bucket:', createBucketError);
-          return res.status(500).json({
-            message: 'Failed to create storage bucket',
-            error: createBucketError.message
-          });
-        }
-        
-        console.log(`Bucket '${DOCUMENTS_BUCKET}' created successfully`);
-      } catch (bucketError) {
-        console.error('Error creating bucket:', bucketError);
-        return res.status(500).json({
-          message: 'Failed to create storage bucket',
-          error: bucketError instanceof Error ? bucketError.message : 'Unknown error'
-        });
-      }
-    }
+    // Initialize storage services
+    const configService = new ConfigService();
+    const storageService = new StorageService(configService);
     
     // Parse the multipart form data using busboy
     const fileResults: FileResult[] = [];
@@ -121,34 +95,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             // Generate a unique key for the file
             const fileKey = `${user.id}/${Date.now()}_${filename}`;
             
-            // Upload the file to Supabase Storage
-            const { data: uploadData, error: uploadError } = await supabaseClient
-              .storage
-              .from(DOCUMENTS_BUCKET)
-              .upload(fileKey, fileBuffer, {
-                contentType: mimeType,
-                upsert: false,
-              });
-
-            if (uploadError) {
+            // Upload the file to AWS S3 using StorageService
+            let fileUrl;
+            try {
+              fileUrl = await storageService.uploadBuffer(fileBuffer, fileKey, mimeType, true);
+              console.log('File uploaded to S3:', fileUrl);
+            } catch (uploadError) {
               console.error('Error uploading file to storage:', uploadError);
               fileResults.push({
                 id: '',
                 title: filename || 'Unknown file',
                 status: 'error',
-                message: `Failed to upload file: ${uploadError.message}`
+                message: `Failed to upload file: ${uploadError instanceof Error ? uploadError.message : String(uploadError)}`
               });
               failedFiles++;
               return;
             }
-
-            // Get the public URL
-            const { data: urlData } = supabaseClient
-              .storage
-              .from(DOCUMENTS_BUCKET)
-              .getPublicUrl(fileKey);
-                
-            const fileUrl = urlData.publicUrl;
             
             // Create document record
             const { data: document, error: createError } = await supabaseClient
