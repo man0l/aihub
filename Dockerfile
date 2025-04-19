@@ -40,7 +40,13 @@ RUN apk add --no-cache \
     pango \
     giflib \
     pixman \
-    && pip3 install --no-cache-dir yt-dlp
+    && python3 -m venv /venv \
+    && source /venv/bin/activate \
+    && pip3 install --no-cache-dir yt-dlp \
+    && deactivate
+
+# Add virtual environment to PATH
+ENV PATH="/venv/bin:$PATH"
 
 # Copy package files
 COPY package*.json ./
