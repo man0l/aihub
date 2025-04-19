@@ -10,6 +10,7 @@ export class StorageService {
   private mediaS3Client: S3Client | null = null;
   private documentsS3Client: S3Client | null = null;
   private isConfigured: boolean = false;
+  private detectedDocumentRegion: string | null = null;
 
   constructor(configService: ConfigService) {
     this.configService = configService;
@@ -40,7 +41,7 @@ export class StorageService {
 
       // Create S3 client for document uploads
       const documentsClientConfig: any = {
-        region: this.configService.documentsBucketRegion,
+        region: this.detectedDocumentRegion || this.configService.documentsBucketRegion,
         credentials: {
           accessKeyId: this.configService.s3AccessKey,
           secretAccessKey: this.configService.s3SecretKey,
@@ -62,6 +63,7 @@ export class StorageService {
       console.log('Initializing S3 clients with config:', {
         mediaRegion: mediaClientConfig.region,
         documentsRegion: documentsClientConfig.region,
+        detectedRegion: this.detectedDocumentRegion,
         customEndpoint: !!mediaClientConfig.endpoint,
         usingPathStyle: !!mediaClientConfig.forcePathStyle
       });
@@ -73,6 +75,20 @@ export class StorageService {
       console.error('Failed to initialize S3 clients:', error);
       this.isConfigured = false;
     }
+  }
+
+  /**
+   * Extract region from endpoint URL
+   * @param endpoint - S3 endpoint URL
+   * @returns The region extracted from the URL or null if not found
+   */
+  private extractRegionFromEndpoint(endpoint: string): string | null {
+    // Attempt to extract region from standard AWS S3 endpoint URLs like s3.us-west-2.amazonaws.com
+    const match = endpoint.match(/s3\.([a-z0-9-]+)\.amazonaws\.com/);
+    if (match && match[1]) {
+      return match[1];
+    }
+    return null;
   }
 
   /**
@@ -94,7 +110,9 @@ export class StorageService {
     }
 
     const bucket = isDocument ? this.configService.documentsBucket : this.configService.s3Bucket;
-    const region = isDocument ? this.configService.documentsBucketRegion : this.configService.s3BucketRegion;
+    const region = isDocument 
+      ? (this.detectedDocumentRegion || this.configService.documentsBucketRegion) 
+      : this.configService.s3BucketRegion;
 
     console.log(`Uploading file to S3 bucket '${bucket}' in region '${region}'`);
 
@@ -135,9 +153,24 @@ export class StorageService {
       // Check for common S3 errors
       if (error.name === 'PermanentRedirect' && error.Endpoint) {
         console.warn(`Bucket requires specific endpoint: ${error.Endpoint}`);
-        // Don't throw - attempt to reconfigure client with the correct endpoint and retry
-        console.log(`Not using explicit endpoint as requested in error message`);
-        throw new Error(`S3 bucket is in a different region. Please update the DOCUMENTS_BUCKET_REGION environment variable to match your bucket's region.`);
+        
+        // Try to extract the region from the endpoint
+        const correctRegion = this.extractRegionFromEndpoint(error.Endpoint);
+        if (correctRegion) {
+          console.log(`Detected correct region: ${correctRegion}, will retry with this region`);
+          
+          // Store the detected region and reinitialize clients
+          this.detectedDocumentRegion = correctRegion;
+          this.initializeClients();
+          
+          // Retry the upload with the new client (recursive call)
+          if (this.isConfigured) {
+            console.log(`Retrying upload with region: ${correctRegion}`);
+            return this.uploadBuffer(buffer, key, contentType, isDocument);
+          }
+        }
+        
+        throw new Error(`S3 bucket '${bucket}' is in a different region. Please update the DOCUMENTS_BUCKET_REGION environment variable to '${correctRegion || 'the correct region'}'.`);
       }
       
       if (error.name === 'InvalidAccessKeyId') {
