@@ -27,7 +27,7 @@ dist
 
 # Testing
 coverage
-test
+!test/data/
 
 # Temporary files
 temp

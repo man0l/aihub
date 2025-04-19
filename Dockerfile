@@ -13,6 +13,10 @@ RUN apk add --no-cache \
     giflib-dev \
     pixman-dev
 
+# Create necessary directories
+RUN mkdir -p /app/test/data \
+    && mkdir -p /app/temp
+
 # Copy package files
 COPY package*.json ./
 
@@ -23,6 +27,7 @@ RUN npm ci
 COPY tsconfig*.json ./
 COPY src/worker/ ./src/worker/
 COPY src/shared/ ./src/shared/
+COPY test/ ./test/
 
 # Build the worker
 RUN npm run build:worker
@@ -49,6 +54,11 @@ RUN apk add --no-cache \
 # Add virtual environment to PATH
 ENV PATH="/venv/bin:$PATH"
 
+# Create necessary directories
+RUN mkdir -p /app/test/data \
+    && mkdir -p /app/temp \
+    && chmod 777 /app/temp
+
 # Copy package files
 COPY package*.json ./
 
@@ -74,6 +84,7 @@ RUN apk add --no-cache \
 
 # Copy built files from builder stage
 COPY --from=builder /app/dist/worker/ ./dist/worker/
+COPY --from=builder /app/test/ ./test/
 COPY worker.js ./
 
 # Set environment variables
