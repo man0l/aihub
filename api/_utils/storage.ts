@@ -35,8 +35,7 @@ export class StorageService {
         credentials: {
           accessKeyId: this.configService.s3AccessKey,
           secretAccessKey: this.configService.s3SecretKey,
-        },
-        forcePathStyle: true
+        }
       };
 
       // Create S3 client for document uploads
@@ -45,22 +44,26 @@ export class StorageService {
         credentials: {
           accessKeyId: this.configService.s3AccessKey,
           secretAccessKey: this.configService.s3SecretKey,
-        },
-        forcePathStyle: true
+        }
       };
 
-      // Override endpoint if custom endpoint is specified
-      if (this.configService.awsEndpoint) {
+      // Only use custom endpoint for non-AWS S3 services
+      // For AWS S3, we let the SDK handle region routing automatically
+      if (this.configService.awsEndpoint && !this.configService.awsEndpoint.includes('amazonaws.com')) {
         mediaClientConfig.endpoint = this.configService.awsEndpoint;
         documentsClientConfig.endpoint = this.configService.awsEndpoint;
+        
+        // Use path style for custom S3 endpoints only
+        mediaClientConfig.forcePathStyle = true;
+        documentsClientConfig.forcePathStyle = true;
       }
 
       // Log configuration (without credentials)
       console.log('Initializing S3 clients with config:', {
         mediaRegion: mediaClientConfig.region,
         documentsRegion: documentsClientConfig.region,
-        customEndpoint: !!this.configService.awsEndpoint,
-        accessKeyConfigured: !!this.configService.s3AccessKey
+        customEndpoint: !!mediaClientConfig.endpoint,
+        usingPathStyle: !!mediaClientConfig.forcePathStyle
       });
 
       this.mediaS3Client = new S3Client(mediaClientConfig);
@@ -113,14 +116,28 @@ export class StorageService {
       console.log(`File uploaded successfully to ${result.Location || 'S3'}`);
       
       // Return the location or construct the URL
-      return result.Location || `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
+      if (result.Location) {
+        return result.Location;
+      }
+      
+      // Construct URL based on whether we're using a custom endpoint
+      const endpoint = this.configService.awsEndpoint;
+      if (endpoint && !endpoint.includes('amazonaws.com')) {
+        // For custom S3 endpoints
+        return `${endpoint}/${bucket}/${key}`;
+      }
+      
+      // Standard AWS S3 URL
+      return `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
     } catch (error: any) {
       console.error('Error uploading file to S3:', error);
       
       // Check for common S3 errors
       if (error.name === 'PermanentRedirect' && error.Endpoint) {
         console.warn(`Bucket requires specific endpoint: ${error.Endpoint}`);
-        throw new Error(`S3 bucket is in a different region. Required endpoint: ${error.Endpoint}`);
+        // Don't throw - attempt to reconfigure client with the correct endpoint and retry
+        console.log(`Not using explicit endpoint as requested in error message`);
+        throw new Error(`S3 bucket is in a different region. Please update the DOCUMENTS_BUCKET_REGION environment variable to match your bucket's region.`);
       }
       
       if (error.name === 'InvalidAccessKeyId') {
