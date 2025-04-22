@@ -45,18 +45,23 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
   }
 
   private getYtDlpArgs(baseArgs: string[], options: { includeFormatting?: boolean } = {}): string[] {
+    // Common arguments that should always be included
     const args = [
-      // Add common arguments to bypass restrictions
       '--no-check-certificates',
       '--geo-bypass',
       '--no-playlist',
       '--ignore-errors',
       '--no-warnings',
-      '--quiet',
     ];
 
-    // Only include format-related arguments when needed
-    if (options.includeFormatting !== false) {
+    // Add proxy if configured - do this early to help with rate limiting
+    if (this.proxyUrl) {
+      console.log(`[YtDlpAdapter] Adding proxy arguments to yt-dlp command`);
+      args.push('--proxy', this.proxyUrl);
+    }
+
+    // Add format-related arguments only when explicitly requested
+    if (options.includeFormatting === true) {
       args.push(
         '--format', 'bestaudio[ext=m4a]/bestaudio/best',  // Prefer m4a audio, fallback to best audio, then any format
         '--extract-audio',  // Extract audio from video
@@ -68,13 +73,10 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
     // Add base arguments
     args.push(...baseArgs);
 
-    // Add proxy if configured
-    if (this.proxyUrl) {
-      console.log(`[YtDlpAdapter] Adding proxy arguments to yt-dlp command`);
-      args.push('--proxy', this.proxyUrl);
-    }
+    // Log the final command for debugging
+    const cmdString = ['yt-dlp', ...args].join(' ');
+    console.log(`[YtDlpAdapter] Executing command: ${cmdString}`);
 
-    console.log('[YtDlpAdapter] Using yt-dlp arguments:', args);
     return args;
   }
 
@@ -83,9 +85,10 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
       const baseArgs = [
         `https://www.youtube.com/watch?v=${videoId}`,
         '--dump-json',
+        '--no-quiet',  // We want to see any errors
       ];
 
-      // Don't include format arguments for info request
+      console.log(`[YtDlpAdapter] Getting video info for ${videoId}`);
       const ytDlp = spawn('yt-dlp', this.getYtDlpArgs(baseArgs, { includeFormatting: false }));
 
       let stdout = '';
@@ -96,17 +99,24 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
       });
 
       ytDlp.stderr.on('data', (data) => {
-        stderr += data;
+        const msg = data.toString();
+        stderr += msg;
+        // Log stderr in real-time for better debugging
+        console.error(`[YtDlpAdapter] stderr: ${msg.trim()}`);
       });
 
       ytDlp.on('close', (code) => {
         if (code !== 0) {
+          console.error('[YtDlpAdapter] Failed to get video info:', stderr);
           reject(new Error(`yt-dlp failed with code ${code}: ${stderr}`));
           return;
         }
 
         try {
           const info = JSON.parse(stdout);
+          console.log(`[YtDlpAdapter] Successfully retrieved info for video: ${info.title}`);
+          console.log(`[YtDlpAdapter] Available formats: ${info.formats?.length || 0}`);
+          
           resolve({
             id: info.id,
             title: info.title,
@@ -126,6 +136,8 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
             }))
           });
         } catch (error: unknown) {
+          console.error('[YtDlpAdapter] Failed to parse video info:', error);
+          console.error('[YtDlpAdapter] Raw stdout:', stdout);
           reject(new Error(`Failed to parse yt-dlp output: ${error instanceof Error ? error.message : String(error)}`));
         }
       });
@@ -198,7 +210,7 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
       ];
 
       console.log(`[YtDlpAdapter] Starting download for video ${videoId} to ${outputPath}`);
-      const ytDlp = spawn('yt-dlp', this.getYtDlpArgs(baseArgs));
+      const ytDlp = spawn('yt-dlp', this.getYtDlpArgs(baseArgs, { includeFormatting: true }));
 
       let stderr = '';
 
