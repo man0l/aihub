@@ -101,16 +101,55 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
   }
 
   selectBestAudioFormat(formats: VideoFormat[]): VideoFormat | null {
-    const audioFormats = formats.filter(f => f.audioOnly);
-    if (audioFormats.length === 0) return null;
+    // Log all available formats
+    console.log('[YtDlpAdapter] Available formats:', formats.map(f => ({
+      formatId: f.formatId,
+      container: f.container,
+      quality: f.quality,
+      audioOnly: f.audioOnly,
+      videoOnly: f.videoOnly,
+      acodec: f.acodec,
+      abr: f.abr
+    })));
 
-    // Sort by quality (higher is better) and filesize (smaller is better)
-    return audioFormats.sort((a, b) => {
+    // First try to find audio-only formats
+    let audioFormats = formats.filter(f => f.audioOnly);
+    console.log(`[YtDlpAdapter] Found ${audioFormats.length} audio-only formats`);
+
+    // If no audio-only formats, try formats that at least have audio
+    if (audioFormats.length === 0) {
+      audioFormats = formats.filter(f => !f.videoOnly && f.acodec && f.acodec !== 'none');
+      console.log(`[YtDlpAdapter] Found ${audioFormats.length} formats with audio (including combined formats)`);
+    }
+
+    if (audioFormats.length === 0) {
+      console.log('[YtDlpAdapter] No suitable audio formats found');
+      return null;
+    }
+
+    // Sort by quality and bitrate
+    const selected = audioFormats.sort((a, b) => {
+      // Prefer higher bitrate
+      if (a.abr && b.abr) {
+        return b.abr - a.abr;
+      }
+      // If bitrates are not available, use quality
       if (a.quality === b.quality) {
         return (a.filesize || Infinity) - (b.filesize || Infinity);
       }
       return a.quality === 'tiny' ? -1 : 1;
     })[0];
+
+    console.log('[YtDlpAdapter] Selected audio format:', {
+      formatId: selected.formatId,
+      container: selected.container,
+      quality: selected.quality,
+      audioOnly: selected.audioOnly,
+      acodec: selected.acodec,
+      abr: selected.abr
+    });
+
+    return selected;
   }
 
   async downloadVideo(
