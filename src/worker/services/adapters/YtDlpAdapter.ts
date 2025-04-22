@@ -12,25 +12,38 @@ import {
   DownloaderOptions
 } from '../interfaces/VideoServices.js';
 import { CaptionService } from '../CaptionService.js';
+import { getProxyUrl } from '../config/ProxyConfig.js';
 
 export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, VideoDownloader {
   private readonly userId?: string;
+  private readonly proxyUrl?: string;
 
   constructor(
     private readonly options: DownloaderOptions = {},
     private readonly captionService: CaptionService
   ) {
     this.userId = options.userId;
-    console.log(`YtDlpAdapter initialized with userId: ${this.userId}`);
+    this.proxyUrl = getProxyUrl();
+    console.log(`YtDlpAdapter initialized with userId: ${this.userId}, proxy: ${this.proxyUrl ? 'enabled' : 'disabled'}`);
+  }
+
+  private getYtDlpArgs(baseArgs: string[]): string[] {
+    const args = [...baseArgs];
+    if (this.proxyUrl) {
+      args.push('--proxy', this.proxyUrl);
+    }
+    return args;
   }
 
   async getVideoInfo(videoId: string): Promise<VideoInfo> {
     return new Promise((resolve, reject) => {
-      const ytDlp = spawn('yt-dlp', [
+      const baseArgs = [
         `https://www.youtube.com/watch?v=${videoId}`,
         '--dump-json',
         '--no-playlist'
-      ]);
+      ];
+
+      const ytDlp = spawn('yt-dlp', this.getYtDlpArgs(baseArgs));
 
       let stdout = '';
       let stderr = '';
@@ -96,13 +109,15 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
     onProgress?: (progress: DownloadProgress) => void
   ): Promise<void> {
     return new Promise((resolve, reject) => {
-      const ytDlp = spawn('yt-dlp', [
+      const baseArgs = [
         `https://www.youtube.com/watch?v=${videoId}`,
         '-f', format.formatId,
         '-o', outputPath,
         '--no-playlist',
         '--newline'
-      ]);
+      ];
+
+      const ytDlp = spawn('yt-dlp', this.getYtDlpArgs(baseArgs));
 
       let stderr = '';
 
@@ -144,8 +159,7 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
         fs.mkdirSync(tempDir, { recursive: true });
       }
 
-      // Use yt-dlp to download subtitles
-      const ytDlp = spawn('yt-dlp', [
+      const baseArgs = [
         `https://www.youtube.com/watch?v=${videoId}`,
         '--write-sub',
         '--write-auto-sub',
@@ -153,7 +167,9 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
         '--skip-download',
         '--sub-format', 'vtt',
         '-o', path.join(tempDir, '%(id)s.%(ext)s')
-      ]);
+      ];
+
+      const ytDlp = spawn('yt-dlp', this.getYtDlpArgs(baseArgs));
 
       let stderr = '';
 
