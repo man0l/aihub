@@ -12,24 +12,35 @@ import {
   DownloaderOptions
 } from '../interfaces/VideoServices.js';
 import { CaptionService } from '../CaptionService.js';
-import { getProxyUrl } from '../config/ProxyConfig.js';
+import { getProxyUrl, getProxyConfig } from '../config/ProxyConfig.js';
 
 export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, VideoDownloader {
   private readonly userId?: string;
   private readonly proxyUrl?: string;
+  private readonly proxyConfig: ReturnType<typeof getProxyConfig>;
 
   constructor(
     private readonly options: DownloaderOptions = {},
     private readonly captionService: CaptionService
   ) {
     this.userId = options.userId;
+    this.proxyConfig = getProxyConfig();
     this.proxyUrl = getProxyUrl();
-    console.log(`YtDlpAdapter initialized with userId: ${this.userId}, proxy: ${this.proxyUrl ? 'enabled' : 'disabled'}`);
+    
+    // Enhanced proxy logging
+    if (this.proxyConfig.enabled) {
+      console.log(`[YtDlpAdapter] Proxy enabled - Using ${this.proxyConfig.host}:${this.proxyConfig.port}`);
+      console.log(`[YtDlpAdapter] Using rotating proxy with username: ${this.proxyConfig.username}`);
+    } else {
+      console.log('[YtDlpAdapter] Proxy disabled - Using direct connection');
+    }
+    console.log(`[YtDlpAdapter] Initialized with userId: ${this.userId}`);
   }
 
   private getYtDlpArgs(baseArgs: string[]): string[] {
     const args = [...baseArgs];
     if (this.proxyUrl) {
+      console.log(`[YtDlpAdapter] Adding proxy arguments to yt-dlp command`);
       args.push('--proxy', this.proxyUrl);
     }
     return args;

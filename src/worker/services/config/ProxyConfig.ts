@@ -13,10 +13,10 @@ export interface ProxyConfig {
 export function getProxyConfig(): ProxyConfig {
   return {
     enabled: process.env.PROXY_ENABLED === 'true',
-    host: process.env.PROXY_HOST || 'p.webshare.io',
+    host: process.env.PROXY_HOST || '',
     port: parseInt(process.env.PROXY_PORT || '80', 10),
-    username: process.env.PROXY_USERNAME || 'lmxwydod-rotate',
-    password: process.env.PROXY_PASSWORD || 'bfwf6r4d7su4'
+    username: process.env.PROXY_USERNAME || '',
+    password: process.env.PROXY_PASSWORD || ''
   };
 }
 
