@@ -85,7 +85,7 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
       const baseArgs = [
         `https://www.youtube.com/watch?v=${videoId}`,
         '--dump-json',
-        '--no-quiet',  // We want to see any errors
+        '--quiet',  // Suppress progress output
       ];
 
       console.log(`[YtDlpAdapter] Getting video info for ${videoId}`);
@@ -113,18 +113,36 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
         }
 
         try {
+          // Log raw output for debugging if it doesn't look like JSON
+          if (!stdout.trim().startsWith('{')) {
+            console.error('[YtDlpAdapter] Unexpected output format. Raw stdout:', stdout);
+            reject(new Error('yt-dlp output is not in JSON format'));
+            return;
+          }
+
           const info = JSON.parse(stdout);
+          
+          // Validate required fields
+          if (!info.id || !info.title) {
+            console.error('[YtDlpAdapter] Missing required fields in video info:', info);
+            reject(new Error('Missing required fields in video info'));
+            return;
+          }
+
+          // Handle case where we get a single format instead of an array
+          const formats = Array.isArray(info.formats) ? info.formats : [info];
+
           console.log(`[YtDlpAdapter] Successfully retrieved info for video: ${info.title}`);
-          console.log(`[YtDlpAdapter] Available formats: ${info.formats?.length || 0}`);
+          console.log(`[YtDlpAdapter] Available formats: ${formats.length}`);
           
           resolve({
             id: info.id,
             title: info.title,
-            formats: info.formats.map((f: any) => ({
+            formats: formats.map((f: any) => ({
               formatId: f.format_id,
-              filesize: f.filesize,
+              filesize: f.filesize || f.filesize_approx, // Add fallback to filesize_approx
               container: f.ext,
-              quality: f.quality || 'unknown',
+              quality: f.quality || f.format_note || 'unknown',
               audioOnly: !f.width && !f.height,
               videoOnly: !f.acodec || f.acodec === 'none',
               resolution: f.width && f.height ? `${f.width}x${f.height}` : undefined,
@@ -132,7 +150,7 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
               vcodec: f.vcodec,
               acodec: f.acodec,
               abr: f.abr,
-              vbr: f.vbr
+              vbr: f.vbr || f.tbr // Add fallback to tbr for video bitrate
             }))
           });
         } catch (error: unknown) {
