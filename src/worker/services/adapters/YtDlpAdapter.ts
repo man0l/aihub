@@ -44,27 +44,37 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
     console.log(`[YtDlpAdapter] Preferred subtitle language: ${this.preferredSubtitleLanguage}`);
   }
 
-  private getYtDlpArgs(baseArgs: string[]): string[] {
+  private getYtDlpArgs(baseArgs: string[], options: { includeFormatting?: boolean } = {}): string[] {
     const args = [
       // Add common arguments to bypass restrictions
       '--no-check-certificates',
       '--geo-bypass',
-      '--format', 'bestaudio[ext=m4a]/bestaudio',  // Prefer m4a audio, fallback to best audio
-      '--extract-audio',  // Extract audio from video
-      '--audio-format', 'mp3',  // Convert to mp3
-      '--audio-quality', '0',  // Best quality
       '--no-playlist',
       '--ignore-errors',
       '--no-warnings',
       '--quiet',
-      ...baseArgs
     ];
 
+    // Only include format-related arguments when needed
+    if (options.includeFormatting !== false) {
+      args.push(
+        '--format', 'bestaudio[ext=m4a]/bestaudio/best',  // Prefer m4a audio, fallback to best audio, then any format
+        '--extract-audio',  // Extract audio from video
+        '--audio-format', 'mp3',  // Convert to mp3
+        '--audio-quality', '0',  // Best quality
+      );
+    }
+
+    // Add base arguments
+    args.push(...baseArgs);
+
+    // Add proxy if configured
     if (this.proxyUrl) {
       console.log(`[YtDlpAdapter] Adding proxy arguments to yt-dlp command`);
       args.push('--proxy', this.proxyUrl);
     }
 
+    console.log('[YtDlpAdapter] Using yt-dlp arguments:', args);
     return args;
   }
 
@@ -73,10 +83,10 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
       const baseArgs = [
         `https://www.youtube.com/watch?v=${videoId}`,
         '--dump-json',
-        '--no-playlist'
       ];
 
-      const ytDlp = spawn('yt-dlp', this.getYtDlpArgs(baseArgs));
+      // Don't include format arguments for info request
+      const ytDlp = spawn('yt-dlp', this.getYtDlpArgs(baseArgs, { includeFormatting: false }));
 
       let stdout = '';
       let stderr = '';
@@ -181,18 +191,21 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
     onProgress?: (progress: DownloadProgress) => void
   ): Promise<void> {
     return new Promise((resolve, reject) => {
-      // Instead of using format.formatId, we'll use our optimized format selection
       const baseArgs = [
         `https://www.youtube.com/watch?v=${videoId}`,
-        '-o', outputPath
+        '-o', outputPath,
+        '--newline',  // Ensure progress output is line-buffered
       ];
 
+      console.log(`[YtDlpAdapter] Starting download for video ${videoId} to ${outputPath}`);
       const ytDlp = spawn('yt-dlp', this.getYtDlpArgs(baseArgs));
 
       let stderr = '';
 
       ytDlp.stderr.on('data', (data) => {
-        stderr += data;
+        const msg = data.toString();
+        stderr += msg;
+        console.error(`[YtDlpAdapter] stderr: ${msg.trim()}`);
       });
 
       ytDlp.stdout.on('data', (data) => {
@@ -210,13 +223,20 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
             });
           }
         }
+        // Log any non-progress output
+        if (!output.includes('%')) {
+          console.log(`[YtDlpAdapter] stdout: ${output.trim()}`);
+        }
       });
 
       ytDlp.on('close', (code) => {
         if (code !== 0) {
-          reject(new Error(`yt-dlp failed with code ${code}: ${stderr}`));
+          const error = new Error(`yt-dlp failed with code ${code}: ${stderr}`);
+          console.error('[YtDlpAdapter] Download failed:', error);
+          reject(error);
           return;
         }
+        console.log(`[YtDlpAdapter] Successfully downloaded video ${videoId}`);
         resolve();
       });
     });
