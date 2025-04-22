@@ -14,18 +14,24 @@ import {
 import { CaptionService } from '../CaptionService.js';
 import { getProxyUrl, getProxyConfig } from '../config/ProxyConfig.js';
 
+export interface YtDlpOptions extends DownloaderOptions {
+  preferredSubtitleLanguage?: string;  // e.g., 'en', 'bg', etc.
+}
+
 export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, VideoDownloader {
   private readonly userId?: string;
   private readonly proxyUrl?: string;
   private readonly proxyConfig: ReturnType<typeof getProxyConfig>;
+  private readonly preferredSubtitleLanguage: string;
 
   constructor(
-    private readonly options: DownloaderOptions = {},
+    private readonly options: YtDlpOptions = {},
     private readonly captionService: CaptionService
   ) {
     this.userId = options.userId;
     this.proxyConfig = getProxyConfig();
     this.proxyUrl = getProxyUrl();
+    this.preferredSubtitleLanguage = options.preferredSubtitleLanguage || 'en';
     
     // Enhanced proxy logging
     if (this.proxyConfig.enabled) {
@@ -35,14 +41,30 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
       console.log('[YtDlpAdapter] Proxy disabled - Using direct connection');
     }
     console.log(`[YtDlpAdapter] Initialized with userId: ${this.userId}`);
+    console.log(`[YtDlpAdapter] Preferred subtitle language: ${this.preferredSubtitleLanguage}`);
   }
 
   private getYtDlpArgs(baseArgs: string[]): string[] {
-    const args = [...baseArgs];
+    const args = [
+      // Add common arguments to bypass restrictions
+      '--no-check-certificates',
+      '--geo-bypass',
+      '--format', 'bestaudio[ext=m4a]/bestaudio',  // Prefer m4a audio, fallback to best audio
+      '--extract-audio',  // Extract audio from video
+      '--audio-format', 'mp3',  // Convert to mp3
+      '--audio-quality', '0',  // Best quality
+      '--no-playlist',
+      '--ignore-errors',
+      '--no-warnings',
+      '--quiet',
+      ...baseArgs
+    ];
+
     if (this.proxyUrl) {
       console.log(`[YtDlpAdapter] Adding proxy arguments to yt-dlp command`);
       args.push('--proxy', this.proxyUrl);
     }
+
     return args;
   }
 
@@ -113,7 +135,7 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
     })));
 
     // First try to find audio-only formats
-    let audioFormats = formats.filter(f => f.audioOnly);
+    let audioFormats = formats.filter(f => f.audioOnly && f.acodec && f.acodec !== 'none');
     console.log(`[YtDlpAdapter] Found ${audioFormats.length} audio-only formats`);
 
     // If no audio-only formats, try formats that at least have audio
@@ -159,12 +181,10 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
     onProgress?: (progress: DownloadProgress) => void
   ): Promise<void> {
     return new Promise((resolve, reject) => {
+      // Instead of using format.formatId, we'll use our optimized format selection
       const baseArgs = [
         `https://www.youtube.com/watch?v=${videoId}`,
-        '-f', format.formatId,
-        '-o', outputPath,
-        '--no-playlist',
-        '--newline'
+        '-o', outputPath
       ];
 
       const ytDlp = spawn('yt-dlp', this.getYtDlpArgs(baseArgs));
@@ -202,33 +222,52 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
     });
   }
 
-  async downloadCaptions(videoId: string): Promise<string | null> {
+  async downloadCaptions(videoId: string, language?: string): Promise<string | null> {
     return new Promise((resolve, reject) => {
       const tempDir = path.join(process.cwd(), 'temp');
       if (!fs.existsSync(tempDir)) {
         fs.mkdirSync(tempDir, { recursive: true });
       }
 
+      // Use provided language or fall back to preferred language
+      const targetLanguage = language || this.preferredSubtitleLanguage;
+      console.log(`[YtDlpAdapter] Attempting to download captions in ${targetLanguage}`);
+
       const baseArgs = [
         `https://www.youtube.com/watch?v=${videoId}`,
         '--write-sub',
         '--write-auto-sub',
-        '--sub-lang', 'en',
+        '--sub-lang', targetLanguage,
         '--skip-download',
         '--sub-format', 'vtt',
+        '--no-check-certificates',
+        '--geo-bypass',
+        '--ignore-errors',
+        '--no-warnings',
         '-o', path.join(tempDir, '%(id)s.%(ext)s')
       ];
 
+      // If target language isn't English, also try English as fallback
+      if (targetLanguage !== 'en') {
+        baseArgs.push('--sub-lang-fallback', 'en');
+      }
+
+      console.log('[YtDlpAdapter] Attempting to download captions with args:', baseArgs);
       const ytDlp = spawn('yt-dlp', this.getYtDlpArgs(baseArgs));
 
       let stderr = '';
 
       ytDlp.stderr.on('data', (data) => {
-        stderr += data;
+        const msg = data.toString();
+        stderr += msg;
+        if (msg.includes('Sign in to confirm')) {
+          console.log('[YtDlpAdapter] Detected bot check during caption download');
+        }
       });
 
       ytDlp.on('close', async (code) => {
         if (code !== 0) {
+          console.error('[YtDlpAdapter] Caption download failed:', stderr);
           reject(new Error(`yt-dlp failed with code ${code}: ${stderr}`));
           return;
         }
@@ -236,12 +275,30 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
         try {
           // Look for the subtitle file
           const files = fs.readdirSync(tempDir);
-          const subtitleFile = files.find(f => f.startsWith(videoId) && (f.endsWith('.vtt') || f.endsWith('.srt')));
+          
+          // First try to find subtitles in target language
+          let subtitleFile = files.find(f => 
+            f.startsWith(videoId) && 
+            (f.includes(`.${targetLanguage}.`) || f.includes(`.${targetLanguage}-auto.`)) && 
+            (f.endsWith('.vtt') || f.endsWith('.srt'))
+          );
+
+          // If not found and target language isn't English, try English
+          if (!subtitleFile && targetLanguage !== 'en') {
+            subtitleFile = files.find(f => 
+              f.startsWith(videoId) && 
+              (f.includes('.en.') || f.includes('.en-auto.')) && 
+              (f.endsWith('.vtt') || f.endsWith('.srt'))
+            );
+          }
           
           if (!subtitleFile) {
+            console.log(`[YtDlpAdapter] No subtitle file found for languages: ${targetLanguage}${targetLanguage !== 'en' ? ', en' : ''}`);
             resolve(null);
             return;
           }
+
+          console.log('[YtDlpAdapter] Found subtitle file:', subtitleFile);
 
           // Read and parse the subtitle file
           const subtitlePath = path.join(tempDir, subtitleFile);
@@ -254,6 +311,7 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
           const transcription = await this.captionService.extractTranscription(content, videoId);
           resolve(transcription);
         } catch (error) {
+          console.error('[YtDlpAdapter] Failed to process subtitles:', error);
           reject(new Error(`Failed to process subtitles: ${error instanceof Error ? error.message : String(error)}`));
         }
       });
