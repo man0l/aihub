@@ -32,9 +32,10 @@ export interface VideoInfo {
 
 export interface DownloadProgress {
   percent: number;
-  downloaded: number;
-  total: number;
+  size: number;
+  sizeUnit: string;
   speed: number;
+  speedUnit: string;
 }
 
 export interface VideoInfoProvider {
@@ -46,6 +47,9 @@ export interface VideoFormatSelector {
 }
 
 export interface VideoDownloader {
+  getInfo(videoUrl: string): Promise<VideoInfo>;
+  getFormats(videoUrl: string): Promise<VideoFormat[]>;
+  getBestAudioFormat(formats: VideoFormat[]): VideoFormat | null;
   downloadVideo(
     videoId: string,
     format: VideoFormat,

@@ -62,7 +62,26 @@ export class VideoDownloadService {
       // Download the audio
       console.log(`Starting download to ${outputFilePath}...`);
       await this.downloader.downloadVideo(videoId, audioFormat, outputFilePath, (progress) => {
-        this.progressTracker.onProgress(progress.downloaded, progress.total);
+        // Convert size to bytes based on unit
+        let totalBytes = progress.size;
+        switch (progress.sizeUnit.toLowerCase()) {
+          case 'kb':
+          case 'kib':
+            totalBytes *= 1024;
+            break;
+          case 'mb':
+          case 'mib':
+            totalBytes *= 1024 * 1024;
+            break;
+          case 'gb':
+          case 'gib':
+            totalBytes *= 1024 * 1024 * 1024;
+            break;
+        }
+        
+        // Calculate downloaded bytes based on percentage
+        const downloadedBytes = Math.floor(totalBytes * (progress.percent / 100));
+        this.progressTracker.onProgress(downloadedBytes, totalBytes);
       });
       
       // Verify download

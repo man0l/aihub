@@ -1,6 +1,6 @@
-import { VideoDownloaderInterface } from './VideoDownloaderInterface.js';
+import { VideoDownloader } from '../interfaces/VideoServices.js';
 import { YtDlpAdapter } from './YtDlpAdapter.js';
-import { VideoFormat, VideoInfo } from '../interfaces/VideoServices.js';
+import { VideoFormat, VideoInfo, DownloadProgress } from '../interfaces/VideoServices.js';
 import { Readable, PassThrough } from 'stream';
 import { pipeline } from 'stream/promises';
 import fs from 'fs';
@@ -8,7 +8,7 @@ import { DownloaderOptions } from '../interfaces/VideoServices.js';
 import { CaptionService } from '../CaptionService.js';
 import { DefaultCaptionParserFactory } from '../factories/CaptionParserFactory.js';
 
-export class YtDlpVideoDownloaderAdapter implements VideoDownloaderInterface {
+export class YtDlpVideoDownloaderAdapter implements VideoDownloader {
   private ytDlpAdapter: YtDlpAdapter;
   private readonly userId?: string;
 
@@ -63,43 +63,13 @@ export class YtDlpVideoDownloaderAdapter implements VideoDownloaderInterface {
     return audioFormats.sort((a, b) => (b.abr || 0) - (a.abr || 0))[0];
   }
 
-  async downloadAudio(url: string, format: VideoFormat): Promise<NodeJS.ReadableStream> {
-    const videoId = this.extractVideoId(url);
-    const tempFilePath = `/tmp/${videoId}_${Date.now()}.${format.container}`;
-    
-    // Create a PassThrough stream that we'll use to pipe the data
-    const passThrough = new PassThrough();
-
-    try {
-      // Start the download
-      await this.ytDlpAdapter.downloadVideo(videoId, {
-        formatId: format.formatId,
-        container: format.container,
-        quality: format.quality,
-        audioOnly: true,
-        videoOnly: false,
-        acodec: format.acodec,
-        vcodec: format.vcodec,
-        abr: format.abr,
-        vbr: format.vbr
-      }, tempFilePath);
-
-      // Once download is complete, read the file and pipe it to the stream
-      const fileStream = fs.createReadStream(tempFilePath);
-      fileStream.pipe(passThrough);
-
-      // Clean up the temporary file when the stream ends
-      passThrough.on('end', () => {
-        fs.unlink(tempFilePath, (err) => {
-          if (err) console.error(`Error cleaning up temp file ${tempFilePath}:`, err);
-        });
-      });
-
-      return passThrough;
-    } catch (error) {
-      passThrough.emit('error', error);
-      throw error;
-    }
+  async downloadVideo(
+    videoId: string,
+    format: VideoFormat,
+    outputPath: string,
+    onProgress?: (progress: DownloadProgress) => void
+  ): Promise<void> {
+    return this.ytDlpAdapter.downloadVideo(videoId, format, outputPath, onProgress);
   }
 
   async downloadCaptions(videoId: string): Promise<string | null> {

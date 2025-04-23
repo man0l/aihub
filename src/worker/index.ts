@@ -704,8 +704,9 @@ class VideoProcessor {
           const audioFilePath = await this.youtubeService.downloadVideo(videoId);
           console.log(`Video downloaded to ${audioFilePath}`);
           
-          // Upload to S3
-          const s3Key = `raw-media/${userId}/${videoId}.mp4`;
+          // Upload to S3 with the same extension as the downloaded file
+          const fileExtension = path.extname(audioFilePath); // Get the file extension including the dot
+          const s3Key = `raw-media/${userId}/${videoId}${fileExtension}`;
           await this.storageService.uploadFile(audioFilePath, s3Key);
           console.log(`Audio uploaded to S3: ${s3Key}`);
           

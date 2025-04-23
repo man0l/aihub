@@ -1,4 +1,4 @@
-import { VideoDownloaderInterface } from './VideoDownloaderInterface.js';
+import { VideoDownloader } from '../interfaces/VideoServices.js';
 import { YtdlAdapter } from './YtdlAdapter.js';
 import { YtDlpVideoDownloaderAdapter } from './YtDlpVideoDownloaderAdapter.js';
 import { DownloaderOptions } from '../interfaces/VideoServices.js';
@@ -7,7 +7,7 @@ export type DownloaderType = 'ytdl' | 'yt-dlp';
 
 export class VideoDownloaderFactory {
   private static instance: VideoDownloaderFactory;
-  private downloaders: Map<DownloaderType, VideoDownloaderInterface> = new Map();
+  private downloaders: Map<DownloaderType, VideoDownloader> = new Map();
   private options: DownloaderOptions;
 
   private constructor(options: DownloaderOptions = {}) {
@@ -38,7 +38,7 @@ export class VideoDownloaderFactory {
     return VideoDownloaderFactory.instance;
   }
 
-  public getDownloader(type: DownloaderType = 'ytdl'): VideoDownloaderInterface {
+  public getDownloader(type: DownloaderType = 'ytdl'): VideoDownloader {
     const downloader = this.downloaders.get(type);
     if (!downloader) {
       throw new Error(`Video downloader type '${type}' not found`);

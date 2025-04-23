@@ -221,20 +221,19 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
     onProgress?: (progress: DownloadProgress) => void
   ): Promise<void> {
     return new Promise((resolve, reject) => {
-      // Determine the temporary output path based on the final format
-      const isAudioOnly = format.audioOnly;
-      const tempOutputPath = outputPath.replace(/\.[^/.]+$/, '') + (isAudioOnly ? '.mp3' : '.mp4');
-
+      // Use the provided output path directly
+      console.log(`[YtDlpAdapter] Starting download for video ${videoId} to ${outputPath}`);
       const baseArgs = [
         `https://www.youtube.com/watch?v=${videoId}`,
-        '-o', tempOutputPath,
+        '-o', outputPath,
         '--newline',  // Ensure progress output is line-buffered
       ];
 
-      console.log(`[YtDlpAdapter] Starting download for video ${videoId} to ${tempOutputPath}`);
-      const ytDlp = spawn('yt-dlp', this.getYtDlpArgs(baseArgs, { includeFormatting: isAudioOnly }));
+      const ytDlp = spawn('yt-dlp', this.getYtDlpArgs(baseArgs, { includeFormatting: format.audioOnly }));
 
       let stderr = '';
+      let downloadCompleted = false;
+      let finalOutputPath = outputPath; // Track the final output path which might change
 
       ytDlp.stderr.on('data', (data) => {
         const msg = data.toString();
@@ -251,47 +250,109 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
             const [, percent, size, sizeUnit, speed, speedUnit] = progressMatch;
             onProgress({
               percent: parseFloat(percent),
-              downloaded: 0, // We don't get this info directly from yt-dlp
-              total: parseFloat(size),
-              speed: parseFloat(speed)
+              size: parseFloat(size),
+              sizeUnit,
+              speed: parseFloat(speed),
+              speedUnit
             });
           }
         }
-        // Log any non-progress output
+
+        // Check for download completion message
+        if (output.includes('[download] 100%') || output.includes('[ExtractAudio] Destination:')) {
+          downloadCompleted = true;
+        }
+        
+        // Check if yt-dlp is changing the output file destination
+        const destinationMatch = output.match(/\[ExtractAudio\] Destination: (.+)/);
+        if (destinationMatch) {
+          finalOutputPath = destinationMatch[1].trim();
+          console.log(`[YtDlpAdapter] yt-dlp changed output path to: ${finalOutputPath}`);
+        }
+
+        // Log any non-progress output for debugging
         if (!output.includes('%')) {
           console.log(`[YtDlpAdapter] stdout: ${output.trim()}`);
         }
       });
 
-      ytDlp.on('close', (code) => {
+      ytDlp.on('close', async (code) => {
         if (code !== 0) {
-          const error = new Error(`yt-dlp failed with code ${code}: ${stderr}`);
-          console.error('[YtDlpAdapter] Download failed:', error);
-          reject(error);
+          console.error('[YtDlpAdapter] Download failed:', stderr);
+          reject(new Error(`yt-dlp failed with code ${code}: ${stderr}`));
           return;
         }
 
-        // Check if the file exists
-        if (!fs.existsSync(tempOutputPath)) {
-          const error = new Error(`Output file not found at ${tempOutputPath}`);
-          console.error('[YtDlpAdapter] Download failed:', error);
-          reject(error);
-          return;
-        }
+        // Add a small delay to ensure file system has finished writing
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
-        // If the temporary path is different from the desired output path, rename it
-        if (tempOutputPath !== outputPath) {
-          try {
-            fs.renameSync(tempOutputPath, outputPath);
-          } catch (error) {
-            console.error('[YtDlpAdapter] Failed to rename output file:', error);
-            reject(error);
-            return;
+        // Try possible file paths in order
+        const possiblePaths = [
+          finalOutputPath, // First try the detected final path
+          outputPath,      // Then the original output path
+          `${outputPath}.m4a`, // Then with m4a extension
+          `${outputPath}.mp3`  // Then with mp3 extension
+        ];
+        
+        // Find the first file that exists
+        let foundPath = null;
+        for (const path of possiblePaths) {
+          if (fs.existsSync(path)) {
+            foundPath = path;
+            console.log(`[YtDlpAdapter] Found output file at: ${foundPath}`);
+            break;
           }
         }
 
-        console.log(`[YtDlpAdapter] Successfully downloaded video ${videoId}`);
-        resolve();
+        // Verify the file exists and has content
+        try {
+          if (!foundPath) {
+            console.error(`[YtDlpAdapter] Output file not found. Checked paths:`, possiblePaths);
+            reject(new Error(`Output file not found after checking multiple potential paths`));
+            return;
+          }
+
+          const stats = fs.statSync(foundPath);
+          if (stats.size === 0) {
+            console.error(`[YtDlpAdapter] Output file is empty: ${foundPath}`);
+            reject(new Error(`Output file is empty: ${foundPath}`));
+            return;
+          }
+
+          if (!downloadCompleted) {
+            console.error(`[YtDlpAdapter] Download did not complete successfully for ${foundPath}`);
+            reject(new Error(`Download did not complete successfully for ${foundPath}`));
+            return;
+          }
+
+          // If the foundPath is different from the expected outputPath, rename it
+          if (foundPath !== outputPath) {
+            try {
+              console.log(`[YtDlpAdapter] Renaming ${foundPath} to ${outputPath}`);
+              fs.renameSync(foundPath, outputPath);
+              console.log(`[YtDlpAdapter] Successfully renamed file to match expected path`);
+            } catch (renameError) {
+              console.error(`[YtDlpAdapter] Error renaming file:`, renameError);
+              // Instead of failing, copy the file content
+              try {
+                console.log(`[YtDlpAdapter] Copying content from ${foundPath} to ${outputPath}`);
+                fs.copyFileSync(foundPath, outputPath);
+                fs.unlinkSync(foundPath); // Delete the original
+                console.log(`[YtDlpAdapter] Successfully copied file content to expected path`);
+              } catch (copyError) {
+                console.error(`[YtDlpAdapter] Error copying file:`, copyError);
+                reject(new Error(`Error ensuring file at correct path: ${copyError instanceof Error ? copyError.message : String(copyError)}`));
+                return;
+              }
+            }
+          }
+
+          console.log(`[YtDlpAdapter] Successfully downloaded ${videoId} to ${outputPath} (${stats.size} bytes)`);
+          resolve();
+        } catch (error) {
+          console.error(`[YtDlpAdapter] Error verifying output file:`, error);
+          reject(new Error(`Error verifying output file: ${error instanceof Error ? error.message : String(error)}`));
+        }
       });
     });
   }
@@ -390,5 +451,27 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
         }
       });
     });
+  }
+
+  // Implement VideoDownloader interface methods
+  async getInfo(videoUrl: string): Promise<VideoInfo> {
+    const videoId = this.extractVideoId(videoUrl);
+    return this.getVideoInfo(videoId);
+  }
+
+  async getFormats(videoUrl: string): Promise<VideoFormat[]> {
+    const videoId = this.extractVideoId(videoUrl);
+    const info = await this.getVideoInfo(videoId);
+    return info.formats;
+  }
+
+  getBestAudioFormat(formats: VideoFormat[]): VideoFormat | null {
+    return this.selectBestAudioFormat(formats);
+  }
+
+  private extractVideoId(url: string): string {
+    const match = url.match(/[?&]v=([^&]+)/);
+    if (!match) throw new Error('Invalid YouTube URL');
+    return match[1];
   }
 } 

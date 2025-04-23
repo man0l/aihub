@@ -4,7 +4,7 @@ import { pipeline } from 'stream/promises';
 import { AxiosInstance } from 'axios';
 import { ConfigService } from './ConfigService.js';
 import { VideoDownloaderFactory, DownloaderType } from './adapters/VideoDownloaderFactory.js';
-import { VideoFormat, VideoInfo } from './interfaces/VideoServices.js';
+import { VideoFormat, VideoInfo, DownloadProgress, VideoDownloader } from './interfaces/VideoServices.js';
 import { YtDlpAdapter } from './adapters/YtDlpAdapter.js';
 import { DefaultCaptionParserFactory } from './factories/CaptionParserFactory.js';
 import { CaptionService } from './CaptionService.js';
@@ -46,15 +46,10 @@ export class YouTubeService {
     // Ensure temp directory exists
     this.config.ensureTempDirExists();
     
-    const outputFilePath = path.join(this.config.tempDir, `${videoId}.mp4`);
+    const outputFilePath = path.join(this.config.tempDir, `${videoId}_${Date.now()}.m4a`);
+    let tempFilePath: string | null = null;
     
     try {
-      // Clean up any existing file before starting
-      if (fs.existsSync(outputFilePath)) {
-        console.log(`Removing existing file at ${outputFilePath}`);
-        fs.unlinkSync(outputFilePath);
-      }
-
       // First get video details using the Data API
       const videoDetailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id=${videoId}&key=${this.config.youtubeApiKey}`;
       const videoDetailsResponse = await this.axiosClient.get(videoDetailsUrl);
@@ -78,8 +73,8 @@ export class YouTubeService {
       const formats = await downloader.getFormats(videoUrl);
       console.log(`Available formats for ${videoId}:`, {
         count: formats.length,
-        audioFormats: formats.filter(f => !f.videoOnly).length,
-        videoFormats: formats.filter(f => !f.audioOnly).length
+        audioFormats: formats.filter((f: VideoFormat) => !f.videoOnly).length,
+        videoFormats: formats.filter((f: VideoFormat) => !f.audioOnly).length
       });
       
       // Get the best audio format
@@ -95,49 +90,49 @@ export class YouTubeService {
         abr: audioFormat.abr
       });
       
+      // Create a temporary file path for the download
+      tempFilePath = path.join(this.config.tempDir, `${videoId}_${Date.now()}_temp.m4a`);
+      
       // Download the audio
-      console.log(`Starting download for ${videoId}...`);
-      const audioStream = await downloader.downloadAudio(videoUrl, audioFormat);
-      
-      // Save the stream to file
-      console.log(`Creating write stream to ${outputFilePath}...`);
-      const writer = fs.createWriteStream(outputFilePath);
-      
-      // Add error handler for the write stream
-      writer.on('error', (err: Error) => {
-        console.error(`Error writing to file for ${videoId}:`, err);
-      });
-      
-      // Add progress logging
-      let downloadedBytes = 0;
-      audioStream.on('data', (chunk: Buffer) => {
-        downloadedBytes += chunk.length;
-        if (downloadedBytes % (1024 * 1024) === 0) { // Log every MB
-          console.log(`Downloaded ${downloadedBytes / (1024 * 1024)} MB for ${videoId}`);
+      console.log(`Starting download for ${videoId} to temporary file ${tempFilePath}...`);
+      await downloader.downloadVideo(videoId, audioFormat, tempFilePath, (progress: DownloadProgress) => {
+        if (progress.percent % 10 === 0) { // Log every 10%
+          console.log(`Download progress for ${videoId}: ${progress.percent}% (${progress.size}${progress.sizeUnit} at ${progress.speed}${progress.speedUnit}/s)`);
         }
       });
       
-      console.log(`Starting pipeline for ${videoId}...`);
-      await pipeline(audioStream, writer);
+      // Verify the temporary file exists and has content
+      if (!fs.existsSync(tempFilePath)) {
+        throw new Error(`Temporary file not found after download: ${tempFilePath}`);
+      }
       
-      // Verify the file exists and has content
-      const stats = fs.statSync(outputFilePath);
+      const stats = fs.statSync(tempFilePath);
       if (stats.size === 0) {
         throw new Error('Downloaded file is empty');
       }
       
-      console.log(`Downloaded YouTube video ${videoId} to ${outputFilePath} (${stats.size} bytes)`);
+      // Move the temporary file to the final location
+      console.log(`Moving temporary file ${tempFilePath} to ${outputFilePath}...`);
+      fs.renameSync(tempFilePath, outputFilePath);
+      tempFilePath = null; // Clear tempFilePath since we moved it successfully
+      
+      console.log(`Successfully downloaded YouTube video ${videoId} to ${outputFilePath} (${stats.size} bytes)`);
       return outputFilePath;
       
-    } catch (error) {
+    } catch (error: unknown) {
       console.error(`Error downloading YouTube video ${videoId}:`, {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
       
-      // Clean up any partial file that might have been created
-      if (fs.existsSync(outputFilePath)) {
-        fs.unlinkSync(outputFilePath);
+      // Clean up temporary file if it exists
+      if (tempFilePath && fs.existsSync(tempFilePath)) {
+        try {
+          fs.unlinkSync(tempFilePath);
+          console.log(`Cleaned up temporary file ${tempFilePath}`);
+        } catch (cleanupError: unknown) {
+          console.error(`Error cleaning up temporary file ${tempFilePath}:`, cleanupError);
+        }
       }
       
       throw new Error(`Failed to download YouTube video ${videoId}: ${error instanceof Error ? error.message : String(error)}`);
@@ -231,4 +226,4 @@ export class YouTubeService {
       return captionData;
     }
   }
-} 
+}
