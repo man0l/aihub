@@ -60,9 +60,8 @@ export class YouTubeService {
       
       const videoDetails = videoDetailsResponse.data.items[0];
       console.log(`Video details retrieved for ${videoId}:`, {
-        title: videoDetails.snippet.title,
-        duration: videoDetails.contentDetails.duration,
-        status: videoDetails.status
+        title: videoDetails.snippet.title.substring(0, 30) + (videoDetails.snippet.title.length > 30 ? '...' : ''),
+        duration: videoDetails.contentDetails.duration
       });
       
       const downloader = this.downloaderFactory.getDownloader(this.downloaderType);
@@ -71,11 +70,7 @@ export class YouTubeService {
       // Get available formats
       console.log(`Getting media formats for ${videoId}...`);
       const formats = await downloader.getFormats(videoUrl);
-      console.log(`Available formats for ${videoId}:`, {
-        count: formats.length,
-        audioFormats: formats.filter((f: VideoFormat) => !f.videoOnly).length,
-        videoFormats: formats.filter((f: VideoFormat) => !f.audioOnly).length
-      });
+      console.log(`Available formats for ${videoId}: ${formats.filter((f: VideoFormat) => !f.videoOnly).length} audio, ${formats.filter((f: VideoFormat) => !f.audioOnly).length} video`);
       
       // Get the best audio format
       const audioFormat = downloader.getBestAudioFormat(formats);
@@ -83,21 +78,23 @@ export class YouTubeService {
         throw new Error('No suitable audio format found');
       }
 
-      console.log(`Selected audio format for ${videoId}:`, {
-        quality: audioFormat.quality,
-        container: audioFormat.container,
-        acodec: audioFormat.acodec,
-        abr: audioFormat.abr
-      });
+      console.log(`Selected audio format: ${audioFormat.quality}, ${audioFormat.container}, bitrate: ${audioFormat.abr || 'unknown'}`);
       
       // Create a temporary file path for the download
       tempFilePath = path.join(this.config.tempDir, `${videoId}_${Date.now()}_temp.m4a`);
       
       // Download the audio
-      console.log(`Starting download for ${videoId} to temporary file ${tempFilePath}...`);
+      console.log(`Starting download for ${videoId}...`);
+      
+      // Track last logged percentage to avoid duplicate logs
+      let lastLoggedPercent = -1;
+      
       await downloader.downloadVideo(videoId, audioFormat, tempFilePath, (progress: DownloadProgress) => {
-        if (progress.percent % 10 === 0) { // Log every 10%
-          console.log(`Download progress for ${videoId}: ${progress.percent}% (${progress.size}${progress.sizeUnit} at ${progress.speed}${progress.speedUnit}/s)`);
+        // Only log at 0%, 25%, 50%, 75%, and 100% to reduce log volume
+        const percent = Math.floor(progress.percent);
+        if (percent % 25 === 0 && percent !== lastLoggedPercent) {
+          console.log(`Download progress: ${percent}% (${progress.size}${progress.sizeUnit} at ${progress.speed}${progress.speedUnit}/s)`);
+          lastLoggedPercent = percent;
         }
       });
       
@@ -112,11 +109,11 @@ export class YouTubeService {
       }
       
       // Move the temporary file to the final location
-      console.log(`Moving temporary file ${tempFilePath} to ${outputFilePath}...`);
+      console.log(`Download complete. Moving to final location...`);
       fs.renameSync(tempFilePath, outputFilePath);
       tempFilePath = null; // Clear tempFilePath since we moved it successfully
       
-      console.log(`Successfully downloaded YouTube video ${videoId} to ${outputFilePath} (${stats.size} bytes)`);
+      console.log(`Successfully downloaded video ${videoId} (${Math.round(stats.size / 1024 / 1024 * 10) / 10} MB)`);
       return outputFilePath;
       
     } catch (error: unknown) {
@@ -180,13 +177,128 @@ export class YouTubeService {
   
   /**
    * Fetches the transcription for a YouTube video using the configured downloader
+   * @param videoId The ID of the YouTube video to fetch captions for
+   * @param preferredLanguage Optional preferred language code (e.g., 'bg' for Bulgarian, 'default' for video's primary language)
+   * @returns The transcription text or null if no captions were found
    */
-  async fetchTranscription(videoId: string): Promise<string | null> {
+  async fetchTranscription(videoId: string, preferredLanguage: string = 'default'): Promise<string | null> {
     try {
       const downloader = this.downloaderFactory.getDownloader(this.downloaderType);
-      return await downloader.downloadCaptions(videoId);
+      
+      // First, try to get video details to help determine the likely language
+      let detectedVideoLanguage: string | null = null;
+      
+      try {
+        // Get video details using the YouTube Data API
+        const videoDetailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${this.config.youtubeApiKey}`;
+        const videoResponse = await this.axiosClient.get(videoDetailsUrl);
+        
+        if (videoResponse.data?.items?.length > 0) {
+          const videoDetails = videoResponse.data.items[0].snippet;
+          
+          // Try to detect language from the video's metadata
+          detectedVideoLanguage = videoDetails.defaultLanguage || videoDetails.defaultAudioLanguage;
+          
+          // Only log if we have meaningful language info or title contains special characters
+          const title = videoDetails.title || '';
+          const hasCyrillic = /[\u0400-\u04FF]/.test(title);
+          
+          if (detectedVideoLanguage || hasCyrillic) {
+            console.log(`Video "${title.substring(0, 40)}${title.length > 40 ? '...' : ''}" - detected language: ${detectedVideoLanguage || (hasCyrillic ? 'Cyrillic (likely bg)' : 'unknown')}`);
+          }
+          
+          // Language detection heuristic based on title for Cyrillic languages
+          if (!detectedVideoLanguage && hasCyrillic) {
+            detectedVideoLanguage = 'bg'; // Assume Bulgarian for videos with Cyrillic titles
+          }
+        }
+      } catch (metadataError) {
+        console.error('Error fetching video metadata');
+      }
+      
+      // Next, use YouTube Data API to get available caption tracks
+      let targetLanguage = preferredLanguage;
+      
+      if (preferredLanguage === 'default') {
+        try {
+          const captionsUrl = `https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId=${videoId}&key=${this.config.youtubeApiKey}`;
+          const response = await this.axiosClient.get(captionsUrl);
+          
+          if (response.data?.items?.length > 0) {
+            const captionTracks = response.data.items;
+            
+            // Log available languages (concisely)
+            const trackLanguages = captionTracks.map((track: any) => 
+              `${track.snippet.language}${track.snippet.trackKind !== 'ASR' ? '' : '(auto)'}`).join(', ');
+            console.log(`Available captions: ${trackLanguages}`);
+            
+            // First try to find a track explicitly marked as default
+            const defaultTrack = captionTracks.find((track: any) => 
+              track.snippet.isDefault === true);
+              
+            // Then try to find a non-ASR (manual) track
+            const manualTrack = captionTracks.find((track: any) => 
+              track.snippet.trackKind !== 'ASR');
+              
+            // Then consider ASR (auto-generated) tracks
+            const asrTrack = captionTracks.find((track: any) => 
+              track.snippet.trackKind === 'ASR');
+            
+            // Choose the best available track with this priority
+            const bestTrack = defaultTrack || manualTrack || asrTrack;
+            
+            if (bestTrack) {
+              targetLanguage = bestTrack.snippet.language;
+              console.log(`Selected caption track: ${targetLanguage}${bestTrack.snippet.trackKind !== 'ASR' ? '' : ' (auto)'}`);
+            } else if (detectedVideoLanguage) {
+              targetLanguage = detectedVideoLanguage;
+              console.log(`Using language from video metadata: ${targetLanguage}`);
+            }
+          } else if (detectedVideoLanguage) {
+            targetLanguage = detectedVideoLanguage;
+            console.log(`Using language from video metadata: ${targetLanguage}`);
+          }
+        } catch (apiError: any) {
+          if (detectedVideoLanguage) {
+            targetLanguage = detectedVideoLanguage;
+            console.log(`Using language from video metadata: ${targetLanguage}`);
+          }
+        }
+      }
+      
+      // Simplified caption retrieval strategy log
+      const strategies = [targetLanguage];
+      if (targetLanguage !== 'default') strategies.push('default');
+      if (detectedVideoLanguage === 'bg' && targetLanguage !== 'bg') strategies.push('bg');
+      if (targetLanguage !== 'en' && preferredLanguage !== 'en') strategies.push('en');
+      
+      console.log(`Caption strategy: ${strategies.join(' → ')}`);
+      
+      // First attempt: Use the determined language
+      let transcription = await downloader.downloadCaptions(videoId, targetLanguage);
+      
+      // Second attempt: Try with 'default' option
+      if (!transcription && targetLanguage !== 'default') {
+        transcription = await downloader.downloadCaptions(videoId, 'default');
+      }
+      
+      // Third attempt: Try Bulgarian specifically for Bulgarian content
+      const isBulgarianContent = detectedVideoLanguage === 'bg';
+      if (!transcription && isBulgarianContent && targetLanguage !== 'bg') {
+        transcription = await downloader.downloadCaptions(videoId, 'bg');
+      }
+      
+      // Fourth attempt: Try English as last resort
+      if (!transcription && targetLanguage !== 'en' && preferredLanguage !== 'en') {
+        transcription = await downloader.downloadCaptions(videoId, 'en');
+      }
+      
+      // Log final result (success/failure only)
+      console.log(transcription ? `Captions retrieved successfully (${transcription.length} chars)` : `No captions found for video ${videoId}`);
+      
+      return transcription;
     } catch (error) {
-      console.error(`Error fetching transcription for video ${videoId}:`, error);
+      console.error(`Error fetching transcription:`, error);
       return null;
     }
   }

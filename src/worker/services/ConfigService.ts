@@ -72,12 +72,13 @@ export class ConfigService {
       }
     };
 
-    console.log('Storage service config initialized:', {
-      projectPrefix,
-      buckets: {
-        ...this.storageServiceConfig.buckets
-      }
-    });
+    // Only log storage config if debug mode is enabled
+    if (process.env.DEBUG_STORAGE === 'true') {
+      console.log('Storage service config:', {
+        projectPrefix,
+        buckets: this.storageServiceConfig.buckets
+      });
+    }
   }
 
   /**

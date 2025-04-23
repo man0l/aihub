@@ -7,7 +7,9 @@ export class CaptionService {
     private readonly parserFactory: CaptionParserFactory,
     private readonly userId?: string
   ) {
-    console.log(`CaptionService initialized with userId: ${userId}`);
+    if (process.env.DEBUG_CAPTIONS === 'true') {
+      console.log(`CaptionService initialized with userId: ${userId || 'none'}`);
+    }
   }
 
   /**
@@ -21,21 +23,9 @@ export class CaptionService {
       const parser = this.parserFactory.getParser(content);
       const transcription = parser.parse(content);
 
-      // Debug log to check userId value
-      console.log('CaptionService.extractTranscription - Current userId:', this.userId);
-
       // If we have both userId and videoId, schedule summary generation
       if (this.userId && videoId && transcription) {
-        console.log(`Attempting to schedule summary generation for video ${videoId} with userId ${this.userId}`);
         await this.scheduleSummaryGeneration(videoId, transcription);
-      } else {
-        console.log(`Skipping summary scheduling - missing requirements:`, {
-          hasUserId: !!this.userId,
-          userId: this.userId, // Add actual userId for debugging
-          hasVideoId: !!videoId,
-          hasTranscription: !!transcription,
-          transcriptionLength: transcription?.length || 0
-        });
       }
 
       return transcription;
@@ -50,11 +40,9 @@ export class CaptionService {
    */
   private async scheduleSummaryGeneration(videoId: string, transcriptText: string): Promise<void> {
     try {
-      console.log(`Creating event scheduler for video ${videoId} with userId ${this.userId}`);
       const eventScheduler = EventSchedulerFactory.create();
 
       // Schedule short summary immediately
-      console.log(`Scheduling short summary for video ${videoId}`);
       await eventScheduler.scheduleSummaryGeneration({
         userId: this.userId!,
         videoId,
@@ -63,7 +51,6 @@ export class CaptionService {
       });
 
       // Schedule long summary with a delay
-      console.log(`Scheduling long summary for video ${videoId}`);
       await eventScheduler.scheduleSummaryGeneration({
         userId: this.userId!,
         videoId,
@@ -71,7 +58,7 @@ export class CaptionService {
         summaryType: 'long'
       }, 1); // 1 minute delay for long summary
 
-      console.log(`Successfully scheduled both summary generation events for video ${videoId}`);
+      console.log(`Scheduled summaries for video ${videoId}`);
     } catch (error) {
       console.error('Failed to schedule summary generation:', error);
       // Don't throw the error as this is a non-critical operation

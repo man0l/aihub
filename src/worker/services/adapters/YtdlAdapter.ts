@@ -92,8 +92,9 @@ export class YtdlAdapter implements VideoDownloader {
     await pipeline(stream, writer);
   }
 
-  async downloadCaptions(videoId: string): Promise<string | null> {
+  async downloadCaptions(videoId: string, language?: string): Promise<string | null> {
     // Basic implementation that returns no captions
+    // Language parameter is ignored since this adapter doesn't support captions
     return null;
   }
 } 

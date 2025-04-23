@@ -11,7 +11,6 @@ export class VideoDownloaderFactory {
   private options: DownloaderOptions;
 
   private constructor(options: DownloaderOptions = {}) {
-    console.log(`VideoDownloaderFactory initialized with userId: ${options.userId}`);
     this.options = options;
     this.initializeDownloaders();
   }
@@ -20,14 +19,16 @@ export class VideoDownloaderFactory {
     this.downloaders.clear();
     this.downloaders.set('ytdl', new YtdlAdapter());
     this.downloaders.set('yt-dlp', new YtDlpVideoDownloaderAdapter(this.options));
-    console.log(`Initialized downloaders with userId: ${this.options.userId}`);
   }
 
   public static getInstance(options: DownloaderOptions = {}): VideoDownloaderFactory {
     // If instance exists but userId is different, reinitialize downloaders
     if (VideoDownloaderFactory.instance && 
         VideoDownloaderFactory.instance.options.userId !== options.userId) {
-      console.log(`Updating VideoDownloaderFactory userId from ${VideoDownloaderFactory.instance.options.userId} to ${options.userId}`);
+      // Only log user ID changes when debugging is enabled
+      if (process.env.DEBUG_DOWNLOADER === 'true') {
+        console.log(`Updating VideoDownloaderFactory userId from ${VideoDownloaderFactory.instance.options.userId || 'none'} to ${options.userId || 'none'}`);
+      }
       VideoDownloaderFactory.instance.options = options;
       VideoDownloaderFactory.instance.initializeDownloaders();
     }

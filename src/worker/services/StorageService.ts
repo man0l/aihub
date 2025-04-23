@@ -30,16 +30,22 @@ export class StorageService implements IStorageService {
 
     // If a custom endpoint is provided (e.g. for MinIO or localstack)
     if (this.storageConfig.endpoint) {
-      console.log(`Using custom S3 endpoint: ${this.storageConfig.endpoint}`);
+      // Only log this in debug mode
+      if (process.env.DEBUG_STORAGE === 'true') {
+        console.log(`Using custom S3 endpoint: ${this.storageConfig.endpoint}`);
+      }
       clientConfig.endpoint = this.storageConfig.endpoint;
       clientConfig.forcePathStyle = true;
     }
 
-    console.log('Initializing S3 client with config:', {
-      region: this.storageConfig.region,
-      endpoint: this.storageConfig.endpoint || 'default AWS endpoint',
-      forcePathStyle: !!this.storageConfig.endpoint
-    });
+    // Only log in debug mode
+    if (process.env.DEBUG_STORAGE === 'true') {
+      console.log('Initializing S3 client with config:', {
+        region: this.storageConfig.region,
+        endpoint: this.storageConfig.endpoint || 'default AWS endpoint',
+        forcePathStyle: !!this.storageConfig.endpoint
+      });
+    }
 
     this.s3Client = new S3Client(clientConfig);
   }
@@ -49,7 +55,9 @@ export class StorageService implements IStorageService {
    * @param bucket - The bucket name to use
    */
   setBucket(bucket: string): void {
-    console.log(`Setting bucket to: ${bucket}`);
+    if (process.env.DEBUG_STORAGE === 'true') {
+      console.log(`Setting bucket to: ${bucket}`);
+    }
     this.currentBucket = bucket;
   }
 
@@ -64,7 +72,9 @@ export class StorageService implements IStorageService {
       throw new Error('Bucket not set. Call setBucket() before performing operations.');
     }
 
-    console.log(`Uploading file to S3: bucket=${this.currentBucket}, key=${key}`);
+    if (process.env.DEBUG_STORAGE === 'true') {
+      console.log(`Uploading file to S3: bucket=${this.currentBucket}, key=${key}`);
+    }
 
     try {
       const fileStream = fs.createReadStream(filePath);
@@ -79,7 +89,9 @@ export class StorageService implements IStorageService {
       });
 
       await upload.done();
-      console.log(`File uploaded successfully to s3://${this.currentBucket}/${key}`);
+      if (process.env.DEBUG_STORAGE === 'true') {
+        console.log(`File uploaded successfully to s3://${this.currentBucket}/${key}`);
+      }
       return `s3://${this.currentBucket}/${key}`;
     } catch (error) {
       console.error('Error uploading file to S3:', error);
@@ -99,7 +111,9 @@ export class StorageService implements IStorageService {
       throw new Error('Bucket not set. Call setBucket() before performing operations.');
     }
 
-    console.log(`Uploading string data to S3: bucket=${this.currentBucket}, key=${key}, contentType=${contentType}`);
+    if (process.env.DEBUG_STORAGE === 'true') {
+      console.log(`Uploading string data to S3: bucket=${this.currentBucket}, key=${key}, contentType=${contentType}`);
+    }
 
     const params = {
       Bucket: this.currentBucket,
@@ -111,7 +125,9 @@ export class StorageService implements IStorageService {
     try {
       const command = new PutObjectCommand(params);
       await this.s3Client.send(command);
-      console.log(`String data uploaded successfully to s3://${this.currentBucket}/${key}`);
+      if (process.env.DEBUG_STORAGE === 'true') {
+        console.log(`String data uploaded successfully to s3://${this.currentBucket}/${key}`);
+      }
       return `s3://${this.currentBucket}/${key}`;
     } catch (error) {
       console.error('Error uploading string data to S3:', error);
@@ -130,7 +146,9 @@ export class StorageService implements IStorageService {
       throw new Error('Bucket not set. Call setBucket() before performing operations.');
     }
 
-    console.log(`Downloading file from S3: bucket=${this.currentBucket}, key=${key}, outputPath=${outputPath}`);
+    if (process.env.DEBUG_STORAGE === 'true') {
+      console.log(`Downloading file from S3: bucket=${this.currentBucket}, key=${key}, outputPath=${outputPath}`);
+    }
 
     const command = new GetObjectCommand({
       Bucket: this.currentBucket,
@@ -152,7 +170,9 @@ export class StorageService implements IStorageService {
         throw new Error('Response body is not a readable stream');
       }
 
-      console.log(`File downloaded successfully to ${outputPath}`);
+      if (process.env.DEBUG_STORAGE === 'true') {
+        console.log(`File downloaded successfully to ${outputPath}`);
+      }
       return outputPath;
     } catch (error) {
       console.error('Error downloading file from S3:', error);

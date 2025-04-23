@@ -14,7 +14,10 @@ export class YtDlpVideoDownloaderAdapter implements VideoDownloader {
 
   constructor(private readonly options: DownloaderOptions = {}) {
     this.userId = options.userId;
-    console.log(`YtDlpVideoDownloaderAdapter initialized with userId: ${this.userId}`);
+    // Only log details when debugging is enabled
+    if (process.env.DEBUG_DOWNLOADER === 'true') {
+      console.log(`YtDlpVideoDownloaderAdapter initialized with userId: ${this.userId || 'none'}`);
+    }
     const captionService = new CaptionService(new DefaultCaptionParserFactory(), this.userId);
     this.ytDlpAdapter = new YtDlpAdapter(options, captionService);
   }
@@ -72,9 +75,9 @@ export class YtDlpVideoDownloaderAdapter implements VideoDownloader {
     return this.ytDlpAdapter.downloadVideo(videoId, format, outputPath, onProgress);
   }
 
-  async downloadCaptions(videoId: string): Promise<string | null> {
+  async downloadCaptions(videoId: string, language?: string): Promise<string | null> {
     // Delegate to the YtDlpAdapter's implementation
-    return this.ytDlpAdapter.downloadCaptions(videoId);
+    return this.ytDlpAdapter.downloadCaptions(videoId, language);
   }
 
   private extractVideoId(url: string): string {

@@ -33,15 +33,12 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
     this.proxyUrl = getProxyUrl();
     this.preferredSubtitleLanguage = options.preferredSubtitleLanguage || 'en';
     
-    // Enhanced proxy logging
+    // Consolidated proxy and initialization logging
     if (this.proxyConfig.enabled) {
-      console.log(`[YtDlpAdapter] Proxy enabled - Using ${this.proxyConfig.host}:${this.proxyConfig.port}`);
-      console.log(`[YtDlpAdapter] Using rotating proxy with username: ${this.proxyConfig.username}`);
+      console.log(`[YtDlpAdapter] Initialized with proxy: ${this.proxyConfig.host}:${this.proxyConfig.port}, userId: ${this.userId}, preferred language: ${this.preferredSubtitleLanguage}`);
     } else {
-      console.log('[YtDlpAdapter] Proxy disabled - Using direct connection');
+      console.log(`[YtDlpAdapter] Initialized with direct connection, userId: ${this.userId}, preferred language: ${this.preferredSubtitleLanguage}`);
     }
-    console.log(`[YtDlpAdapter] Initialized with userId: ${this.userId}`);
-    console.log(`[YtDlpAdapter] Preferred subtitle language: ${this.preferredSubtitleLanguage}`);
   }
 
   private getYtDlpArgs(baseArgs: string[], options: { includeFormatting?: boolean } = {}): string[] {
@@ -56,7 +53,6 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
 
     // Add proxy if configured - do this early to help with rate limiting
     if (this.proxyUrl) {
-      console.log(`[YtDlpAdapter] Adding proxy arguments to yt-dlp command`);
       args.push('--proxy', this.proxyUrl);
     }
 
@@ -73,9 +69,11 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
     // Add base arguments
     args.push(...baseArgs);
 
-    // Log the final command for debugging
-    const cmdString = ['yt-dlp', ...args].join(' ');
-    console.log(`[YtDlpAdapter] Executing command: ${cmdString}`);
+    // Only log command type without detailed args to reduce log volume
+    const commandType = baseArgs.includes('--write-sub') ? 'caption' : 
+                       (baseArgs.includes('--dump-json') ? 'info' : 'download');
+    const videoId = baseArgs[0].includes('=') ? baseArgs[0].split('=').pop() : 'unknown';
+    console.log(`[YtDlpAdapter] Executing ${commandType} command for ${videoId}`);
 
     return args;
   }
@@ -101,8 +99,10 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
       ytDlp.stderr.on('data', (data) => {
         const msg = data.toString();
         stderr += msg;
-        // Log stderr in real-time for better debugging
-        console.error(`[YtDlpAdapter] stderr: ${msg.trim()}`);
+        // Only log actual errors, not warnings
+        if (msg.includes('ERROR') || msg.includes('failed')) {
+          console.error(`[YtDlpAdapter] stderr: ${msg.trim()}`);
+        }
       });
 
       ytDlp.on('close', (code) => {
@@ -124,7 +124,7 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
           
           // Validate required fields
           if (!info.id || !info.title) {
-            console.error('[YtDlpAdapter] Missing required fields in video info:', info);
+            console.error('[YtDlpAdapter] Missing required fields in video info');
             reject(new Error('Missing required fields in video info'));
             return;
           }
@@ -132,8 +132,9 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
           // Handle case where we get a single format instead of an array
           const formats = Array.isArray(info.formats) ? info.formats : [info];
 
-          console.log(`[YtDlpAdapter] Successfully retrieved info for video: ${info.title}`);
-          console.log(`[YtDlpAdapter] Available formats: ${formats.length}`);
+          // Use a shorter title version in logs
+          const title = info.title.length > 40 ? info.title.substring(0, 40) + '...' : info.title;
+          console.log(`[YtDlpAdapter] Retrieved info for: "${title}" (${formats.length} formats)`);
           
           resolve({
             id: info.id,
@@ -155,7 +156,6 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
           });
         } catch (error: unknown) {
           console.error('[YtDlpAdapter] Failed to parse video info:', error);
-          console.error('[YtDlpAdapter] Raw stdout:', stdout);
           reject(new Error(`Failed to parse yt-dlp output: ${error instanceof Error ? error.message : String(error)}`));
         }
       });
@@ -163,25 +163,15 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
   }
 
   selectBestAudioFormat(formats: VideoFormat[]): VideoFormat | null {
-    // Log all available formats
-    console.log('[YtDlpAdapter] Available formats:', formats.map(f => ({
-      formatId: f.formatId,
-      container: f.container,
-      quality: f.quality,
-      audioOnly: f.audioOnly,
-      videoOnly: f.videoOnly,
-      acodec: f.acodec,
-      abr: f.abr
-    })));
+    // Only log a count of formats, not their details
+    console.log(`[YtDlpAdapter] Selecting best audio format from ${formats.length} available formats`);
 
     // First try to find audio-only formats
     let audioFormats = formats.filter(f => f.audioOnly && f.acodec && f.acodec !== 'none');
-    console.log(`[YtDlpAdapter] Found ${audioFormats.length} audio-only formats`);
 
     // If no audio-only formats, try formats that at least have audio
     if (audioFormats.length === 0) {
       audioFormats = formats.filter(f => !f.videoOnly && f.acodec && f.acodec !== 'none');
-      console.log(`[YtDlpAdapter] Found ${audioFormats.length} formats with audio (including combined formats)`);
     }
 
     if (audioFormats.length === 0) {
@@ -202,14 +192,8 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
       return a.quality === 'tiny' ? -1 : 1;
     })[0];
 
-    console.log('[YtDlpAdapter] Selected audio format:', {
-      formatId: selected.formatId,
-      container: selected.container,
-      quality: selected.quality,
-      audioOnly: selected.audioOnly,
-      acodec: selected.acodec,
-      abr: selected.abr
-    });
+    // Log only the most important details of the selected format
+    console.log(`[YtDlpAdapter] Selected format: ${selected.formatId}, ${selected.container}, bitrate: ${selected.abr || 'unknown'}`);
 
     return selected;
   }
@@ -222,7 +206,7 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       // Use the provided output path directly
-      console.log(`[YtDlpAdapter] Starting download for video ${videoId} to ${outputPath}`);
+      console.log(`[YtDlpAdapter] Starting download for video ${videoId}`);
       const baseArgs = [
         `https://www.youtube.com/watch?v=${videoId}`,
         '-o', outputPath,
@@ -234,11 +218,15 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
       let stderr = '';
       let downloadCompleted = false;
       let finalOutputPath = outputPath; // Track the final output path which might change
+      let lastProgressLog = 0; // Track when we last logged progress
 
       ytDlp.stderr.on('data', (data) => {
         const msg = data.toString();
         stderr += msg;
-        console.error(`[YtDlpAdapter] stderr: ${msg.trim()}`);
+        // Only log serious errors, not warnings
+        if (msg.includes('ERROR:') || msg.includes('Fatal error')) {
+          console.error(`[YtDlpAdapter] stderr: ${msg.trim()}`);
+        }
       });
 
       ytDlp.stdout.on('data', (data) => {
@@ -267,12 +255,23 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
         const destinationMatch = output.match(/\[ExtractAudio\] Destination: (.+)/);
         if (destinationMatch) {
           finalOutputPath = destinationMatch[1].trim();
-          console.log(`[YtDlpAdapter] yt-dlp changed output path to: ${finalOutputPath}`);
+          console.log(`[YtDlpAdapter] Output path changed to: ${path.basename(finalOutputPath)}`);
         }
 
-        // Log any non-progress output for debugging
+        // Only log non-progress output that's relevant for debugging
         if (!output.includes('%')) {
-          console.log(`[YtDlpAdapter] stdout: ${output.trim()}`);
+          // Filter out informational messages to reduce noise
+          const isImportant = 
+            output.includes('ERROR:') || 
+            output.includes('Destination:') || 
+            output.includes('Merging') ||
+            output.includes('Deleting') ||
+            output.includes('Post-process') ||
+            output.includes('has already been downloaded');
+            
+          if (isImportant) {
+            console.log(`[YtDlpAdapter] ${output.trim()}`);
+          }
         }
       });
 
@@ -296,10 +295,12 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
         
         // Find the first file that exists
         let foundPath = null;
-        for (const path of possiblePaths) {
-          if (fs.existsSync(path)) {
-            foundPath = path;
-            console.log(`[YtDlpAdapter] Found output file at: ${foundPath}`);
+        for (const filePath of possiblePaths) {
+          if (fs.existsSync(filePath)) {
+            foundPath = filePath;
+            if (filePath !== outputPath && filePath !== finalOutputPath) {
+              console.log(`[YtDlpAdapter] Found output at alternate path: ${path.basename(filePath)}`);
+            }
             break;
           }
         }
@@ -307,20 +308,20 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
         // Verify the file exists and has content
         try {
           if (!foundPath) {
-            console.error(`[YtDlpAdapter] Output file not found. Checked paths:`, possiblePaths);
+            console.error(`[YtDlpAdapter] Output file not found. Checked paths:`, possiblePaths.map(p => path.basename(p)));
             reject(new Error(`Output file not found after checking multiple potential paths`));
             return;
           }
 
           const stats = fs.statSync(foundPath);
           if (stats.size === 0) {
-            console.error(`[YtDlpAdapter] Output file is empty: ${foundPath}`);
+            console.error(`[YtDlpAdapter] Output file is empty: ${path.basename(foundPath)}`);
             reject(new Error(`Output file is empty: ${foundPath}`));
             return;
           }
 
           if (!downloadCompleted) {
-            console.error(`[YtDlpAdapter] Download did not complete successfully for ${foundPath}`);
+            console.error(`[YtDlpAdapter] Download did not complete successfully for ${path.basename(foundPath)}`);
             reject(new Error(`Download did not complete successfully for ${foundPath}`));
             return;
           }
@@ -328,17 +329,15 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
           // If the foundPath is different from the expected outputPath, rename it
           if (foundPath !== outputPath) {
             try {
-              console.log(`[YtDlpAdapter] Renaming ${foundPath} to ${outputPath}`);
+              console.log(`[YtDlpAdapter] Renaming ${path.basename(foundPath)} to ${path.basename(outputPath)}`);
               fs.renameSync(foundPath, outputPath);
-              console.log(`[YtDlpAdapter] Successfully renamed file to match expected path`);
             } catch (renameError) {
               console.error(`[YtDlpAdapter] Error renaming file:`, renameError);
               // Instead of failing, copy the file content
               try {
-                console.log(`[YtDlpAdapter] Copying content from ${foundPath} to ${outputPath}`);
+                console.log(`[YtDlpAdapter] Copying content to expected path`);
                 fs.copyFileSync(foundPath, outputPath);
                 fs.unlinkSync(foundPath); // Delete the original
-                console.log(`[YtDlpAdapter] Successfully copied file content to expected path`);
               } catch (copyError) {
                 console.error(`[YtDlpAdapter] Error copying file:`, copyError);
                 reject(new Error(`Error ensuring file at correct path: ${copyError instanceof Error ? copyError.message : String(copyError)}`));
@@ -347,7 +346,8 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
             }
           }
 
-          console.log(`[YtDlpAdapter] Successfully downloaded ${videoId} to ${outputPath} (${stats.size} bytes)`);
+          const fileSizeMB = Math.round(stats.size / 1024 / 1024 * 100) / 100;
+          console.log(`[YtDlpAdapter] Download successful: ${fileSizeMB} MB`);
           resolve();
         } catch (error) {
           console.error(`[YtDlpAdapter] Error verifying output file:`, error);
@@ -364,15 +364,16 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
         fs.mkdirSync(tempDir, { recursive: true });
       }
 
-      // Use provided language or fall back to preferred language
-      const targetLanguage = language || this.preferredSubtitleLanguage;
-      console.log(`[YtDlpAdapter] Attempting to download captions in ${targetLanguage}`);
-
-      const baseArgs = [
+      // Handle special language option for 'default' which gets video's primary language
+      // Otherwise use provided language or fall back to preferred language
+      const useDefault = language === 'default';
+      const targetLanguage = useDefault ? '' : (language || this.preferredSubtitleLanguage);
+      
+      // Build yt-dlp command
+      let baseArgs = [
         `https://www.youtube.com/watch?v=${videoId}`,
         '--write-sub',
         '--write-auto-sub',
-        '--sub-lang', targetLanguage,
         '--skip-download',
         '--sub-format', 'vtt',
         '--no-check-certificates',
@@ -382,14 +383,16 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
         '-o', path.join(tempDir, '%(id)s.%(ext)s')
       ];
 
-      // If target language isn't English, also try English as fallback
-      if (targetLanguage !== 'en') {
-        baseArgs.push('--sub-lang-fallback', 'en');
+      // Add language parameter if needed
+      if (!useDefault && targetLanguage) {
+        console.log(`[YtDlpAdapter] Requesting captions for ${videoId} in language "${targetLanguage}"`);
+        baseArgs.push('--sub-lang', targetLanguage);
+      } else {
+        console.log(`[YtDlpAdapter] Requesting default language captions for ${videoId}`);
       }
 
-      console.log('[YtDlpAdapter] Attempting to download captions with args:', baseArgs);
+      // Execute yt-dlp command
       const ytDlp = spawn('yt-dlp', this.getYtDlpArgs(baseArgs));
-
       let stderr = '';
 
       ytDlp.stderr.on('data', (data) => {
@@ -409,40 +412,52 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
 
         try {
           // Look for the subtitle file
-          const files = fs.readdirSync(tempDir);
+          const files = fs.readdirSync(tempDir).filter(f => f.startsWith(videoId) && 
+                                                           (f.endsWith('.vtt') || f.endsWith('.srt')));
           
-          // First try to find subtitles in target language
-          let subtitleFile = files.find(f => 
-            f.startsWith(videoId) && 
-            (f.includes(`.${targetLanguage}.`) || f.includes(`.${targetLanguage}-auto.`)) && 
-            (f.endsWith('.vtt') || f.endsWith('.srt'))
-          );
-
-          // If not found and target language isn't English, try English
-          if (!subtitleFile && targetLanguage !== 'en') {
+          // Find appropriate subtitle file
+          let subtitleFile = null;
+          
+          // For specific language, try to find that language first
+          if (targetLanguage) {
             subtitleFile = files.find(f => 
-              f.startsWith(videoId) && 
-              (f.includes('.en.') || f.includes('.en-auto.')) && 
-              (f.endsWith('.vtt') || f.endsWith('.srt'))
+              f.includes(`.${targetLanguage}.`) || f.includes(`.${targetLanguage}-auto.`)
             );
           }
           
+          // If no specific match, use any available subtitle file
+          if (!subtitleFile && files.length > 0) {
+            subtitleFile = files[0];
+          }
+          
           if (!subtitleFile) {
-            console.log(`[YtDlpAdapter] No subtitle file found for languages: ${targetLanguage}${targetLanguage !== 'en' ? ', en' : ''}`);
+            console.log(`[YtDlpAdapter] No captions found for ${videoId}`);
             resolve(null);
             return;
           }
+          
+          // Extract language from filename for logging
+          const langMatch = subtitleFile.match(/\.([a-z]{2}(-[A-Z]{2})?)\./) || 
+                            subtitleFile.match(/\.([a-z]{2}(-[A-Z]{2})?)-auto\./);
+          const detectedLang = langMatch ? langMatch[1] : 'unknown';
+          
+          // Log success with detected language
+          if (targetLanguage) {
+            if (detectedLang === targetLanguage) {
+              console.log(`[YtDlpAdapter] Found requested ${targetLanguage} captions for ${videoId}`);
+            } else {
+              console.log(`[YtDlpAdapter] Requested ${targetLanguage} not found, using ${detectedLang} captions instead for ${videoId}`);
+            }
+          } else {
+            console.log(`[YtDlpAdapter] Using ${detectedLang} captions for ${videoId}`);
+          }
 
-          console.log('[YtDlpAdapter] Found subtitle file:', subtitleFile);
-
-          // Read and parse the subtitle file
+          // Read and process subtitle file
           const subtitlePath = path.join(tempDir, subtitleFile);
           const content = fs.readFileSync(subtitlePath, 'utf-8');
-          
-          // Clean up the temp file
-          fs.unlinkSync(subtitlePath);
+          fs.unlinkSync(subtitlePath); // Clean up
 
-          // Use our CaptionService to extract clean transcription
+          // Extract transcription
           const transcription = await this.captionService.extractTranscription(content, videoId);
           resolve(transcription);
         } catch (error) {
