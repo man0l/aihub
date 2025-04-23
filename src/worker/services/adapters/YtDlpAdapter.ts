@@ -63,10 +63,10 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
     // Add format-related arguments only when explicitly requested
     if (options.includeFormatting === true) {
       args.push(
-        '--format', 'bestaudio[ext=m4a]/bestaudio/best',  // Prefer m4a audio, fallback to best audio, then any format
-        '--extract-audio',  // Extract audio from video
-        '--audio-format', 'mp3',  // Convert to mp3
-        '--audio-quality', '0',  // Best quality
+        '--format', 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',  // Prefer m4a, then webm, then best audio
+        '--extract-audio',
+        '--audio-format', 'm4a',  // Convert to m4a
+        '--audio-quality', '0',   // Best quality
       );
     }
 
@@ -221,14 +221,18 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
     onProgress?: (progress: DownloadProgress) => void
   ): Promise<void> {
     return new Promise((resolve, reject) => {
+      // Determine the temporary output path based on the final format
+      const isAudioOnly = format.audioOnly;
+      const tempOutputPath = outputPath.replace(/\.[^/.]+$/, '') + (isAudioOnly ? '.mp3' : '.mp4');
+
       const baseArgs = [
         `https://www.youtube.com/watch?v=${videoId}`,
-        '-o', outputPath,
+        '-o', tempOutputPath,
         '--newline',  // Ensure progress output is line-buffered
       ];
 
-      console.log(`[YtDlpAdapter] Starting download for video ${videoId} to ${outputPath}`);
-      const ytDlp = spawn('yt-dlp', this.getYtDlpArgs(baseArgs, { includeFormatting: true }));
+      console.log(`[YtDlpAdapter] Starting download for video ${videoId} to ${tempOutputPath}`);
+      const ytDlp = spawn('yt-dlp', this.getYtDlpArgs(baseArgs, { includeFormatting: isAudioOnly }));
 
       let stderr = '';
 
@@ -266,6 +270,26 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
           reject(error);
           return;
         }
+
+        // Check if the file exists
+        if (!fs.existsSync(tempOutputPath)) {
+          const error = new Error(`Output file not found at ${tempOutputPath}`);
+          console.error('[YtDlpAdapter] Download failed:', error);
+          reject(error);
+          return;
+        }
+
+        // If the temporary path is different from the desired output path, rename it
+        if (tempOutputPath !== outputPath) {
+          try {
+            fs.renameSync(tempOutputPath, outputPath);
+          } catch (error) {
+            console.error('[YtDlpAdapter] Failed to rename output file:', error);
+            reject(error);
+            return;
+          }
+        }
+
         console.log(`[YtDlpAdapter] Successfully downloaded video ${videoId}`);
         resolve();
       });
