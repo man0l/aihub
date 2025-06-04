@@ -688,7 +688,7 @@ class VideoProcessor {
       this.youtubeService = new YouTubeService(
         this.config, 
         this.youtubeService['axiosClient'], 
-        'yt-dlp',
+        'oxylabs',
         userId
       );
 
@@ -1066,7 +1066,7 @@ class Application {
       }
     });
     
-    this.youtubeService = new YouTubeService(this.configService, axiosClient, 'yt-dlp');
+    this.youtubeService = new YouTubeService(this.configService, axiosClient, 'oxylabs');
     this.databaseService = new DatabaseService(this.supabaseClient);
     
     // Create processors

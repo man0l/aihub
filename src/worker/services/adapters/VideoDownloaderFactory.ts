@@ -1,17 +1,21 @@
 import { VideoDownloader } from '../interfaces/VideoServices.js';
 import { YtdlAdapter } from './YtdlAdapter.js';
 import { YtDlpVideoDownloaderAdapter } from './YtDlpVideoDownloaderAdapter.js';
+import { OxylabsAdapter } from './OxylabsAdapter.js';
 import { DownloaderOptions } from '../interfaces/VideoServices.js';
+import { ConfigService } from '../ConfigService.js';
 
-export type DownloaderType = 'ytdl' | 'yt-dlp';
+export type DownloaderType = 'ytdl' | 'yt-dlp' | 'oxylabs';
 
 export class VideoDownloaderFactory {
   private static instance: VideoDownloaderFactory;
   private downloaders: Map<DownloaderType, VideoDownloader> = new Map();
   private options: DownloaderOptions;
+  private configService: ConfigService;
 
   private constructor(options: DownloaderOptions = {}) {
     this.options = options;
+    this.configService = new ConfigService();
     this.initializeDownloaders();
   }
 
@@ -19,6 +23,12 @@ export class VideoDownloaderFactory {
     this.downloaders.clear();
     this.downloaders.set('ytdl', new YtdlAdapter());
     this.downloaders.set('yt-dlp', new YtDlpVideoDownloaderAdapter(this.options));
+    this.downloaders.set('oxylabs', new OxylabsAdapter({
+      username: this.configService.oxylabsUsername,
+      password: this.configService.oxylabsPassword,
+      apiHost: this.configService.oxylabsApiHost,
+      userId: this.options.userId
+    }));
   }
 
   public static getInstance(options: DownloaderOptions = {}): VideoDownloaderFactory {

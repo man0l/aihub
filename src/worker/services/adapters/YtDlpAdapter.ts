@@ -49,6 +49,8 @@ export class YtDlpAdapter implements VideoInfoProvider, VideoFormatSelector, Vid
       '--no-playlist',
       '--ignore-errors',
       '--no-warnings',
+      '--cookies', 
+      'cookies.txt'
     ];
 
     // Add proxy if configured - do this early to help with rate limiting

@@ -19,6 +19,11 @@ export class ConfigService {
   openaiApiKey: string | undefined;
   youtubeApiKey: string;
 
+  // Oxylabs credentials
+  oxylabsUsername: string;
+  oxylabsPassword: string;
+  oxylabsApiHost: string;
+
   // Other configuration
   tempDir: string;
 
@@ -37,6 +42,11 @@ export class ConfigService {
     // API keys
     this.openaiApiKey = process.env.VITE_OPENAI_API_KEY;
     this.youtubeApiKey = process.env.VITE_YOUTUBE_API_KEY || '';
+    
+    // Oxylabs credentials
+    this.oxylabsUsername = process.env.OXYLABS_API_USER || '';
+    this.oxylabsPassword = process.env.OXYLABS_API_PASS || '';
+    this.oxylabsApiHost = process.env.OXYLABS_API_HOST || 'https://data.oxylabs.io/v1/queries';
     
     // Set up temp directory
     this.tempDir = process.env.TEMP_DIR || path.join(process.cwd(), 'temp');
@@ -108,7 +118,10 @@ export class ConfigService {
       { name: 'VITE_YOUTUBE_API_KEY', value: this.youtubeApiKey },
       { name: 'PROJECT_PREFIX', value: this.storageServiceConfig.projectPrefix },
       { name: 'RAW_MEDIA_BUCKET', value: this.storageServiceConfig.buckets.rawMedia },
-      { name: 'PROCESSED_TRANSCRIPTS_BUCKET', value: this.storageServiceConfig.buckets.processedTranscripts }
+      { name: 'PROCESSED_TRANSCRIPTS_BUCKET', value: this.storageServiceConfig.buckets.processedTranscripts },
+      { name: 'OXYLABS_API_USER', value: this.oxylabsUsername },
+      { name: 'OXYLABS_API_PASS', value: this.oxylabsPassword },
+      { name: 'OXYLABS_API_HOST', value: this.oxylabsApiHost }
     ];
     
     const missingVars = requiredVars.filter(({ value }) => !value);

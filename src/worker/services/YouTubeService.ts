@@ -22,7 +22,7 @@ export class YouTubeService {
   constructor(
     configService: ConfigService, 
     axiosClient: AxiosInstance,
-    downloaderType: DownloaderType = 'ytdl',
+    downloaderType: DownloaderType = 'oxylabs',
     private readonly userId?: string
   ) {
     this.config = configService;

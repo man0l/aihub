@@ -13,7 +13,8 @@ import {
   AlertCircle,
   CheckCircle,
   XCircle,
-  Info
+  Info,
+  Video
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { VideoSource, ProcessingOptions } from '../lib/types';
@@ -55,6 +56,7 @@ export default function Upload() {
   const [processingStatus, setProcessingStatus] = useState<{ [key: string]: string }>({});
   const [uploadStatuses, setUploadStatuses] = useState<FileUploadStatus[]>([]);
   const [acceptedFileTypes] = useState('.pdf,.doc,.docx,.txt,.rtf,.xls,.xlsx,.odt,.ods,.odp');
+  const [acceptedVideoTypes] = useState('.mp4,.webm,.opus,.m4a,.mp3');
 
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -199,6 +201,164 @@ export default function Upload() {
         
         // Only navigate if there are no errors or some files succeeded
         if (results.some((r: any) => r.status !== 'error')) {
+          setTimeout(() => {
+            navigate('/library');
+          }, 3000);
+        }
+      } else {
+        // All uploads successful - wait a bit to show success state before navigating
+        setTimeout(() => {
+          navigate('/library');
+        }, 1500);
+      }
+    } catch (err) {
+      setUploadStatuses(prev => 
+        prev.map(status => ({
+          ...status,
+          status: 'error',
+          message: err instanceof Error ? err.message : 'An unknown error occurred'
+        }))
+      );
+      
+      setError({
+        message: 'Processing failed',
+        details: err instanceof Error ? err.message : 'An unknown error occurred'
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [user, navigate, options, collection]);
+
+  const handleVideoFileUpload = useCallback(async (files: FileList) => {
+    if (!user || !user.access_token) {
+      setError({ message: 'You need to be logged in to upload video files' });
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    // Initialize upload statuses
+    const initialStatuses: FileUploadStatus[] = Array.from(files).map(file => ({
+      file,
+      progress: 0,
+      status: 'pending'
+    }));
+    setUploadStatuses(initialStatuses);
+
+    try {
+      // First, just queue the files for processing instead of uploading directly
+      // This follows SOLID principles by separating responsibilities
+      // The server will handle uploading to S3 via a worker
+      const processingOptions: ProcessingOptions = {
+        ...options,
+        collectionId: collection || undefined,
+      };
+      
+      const fileInfo = Array.from(files).map(file => ({
+        name: file.name,
+        size: file.size,
+        type: file.type
+      }));
+      
+      // Request pre-signed URLs and queue processing
+      const queueResponse = await axios.post('/api/upload/queue-video-files', 
+        { 
+          files: fileInfo,
+          options: processingOptions 
+        },
+        { 
+          headers: { 
+            Authorization: `Bearer ${user.access_token}` 
+          } 
+        }
+      );
+      
+      // Prepare to track upload progress for each file
+      const uploadPromises = Array.from(files).map(async (file, index) => {
+        try {
+          const fileId = queueResponse.data[index]?.id;
+          const uploadUrl = queueResponse.data[index]?.uploadUrl;
+          
+          if (!fileId || !uploadUrl) {
+            throw new Error('Failed to get upload URL');
+          }
+          
+          // Update status to uploading
+          setUploadStatuses(prev => 
+            prev.map((status, i) => 
+              i === index ? { ...status, status: 'uploading' } : status
+            )
+          );
+          
+          // Upload file directly to S3 using pre-signed URL
+          const uploadResponse = await axios.put(
+            uploadUrl,
+            file,
+            {
+              headers: {
+                'Content-Type': file.type
+              },
+              onUploadProgress: (progressEvent) => {
+                if (progressEvent.total) {
+                  const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                  setUploadStatuses(prev => 
+                    prev.map((status, i) => 
+                      i === index ? { ...status, progress, status: 'uploading' } : status
+                    )
+                  );
+                }
+              }
+            }
+          );
+          
+          // Notify backend that upload is complete and processing can begin
+          await axios.post(
+            '/api/upload/confirm-video-upload',
+            { fileId },
+            { headers: { Authorization: `Bearer ${user.access_token}` } }
+          );
+          
+          return {
+            index,
+            success: true,
+            status: 'queued',
+            message: 'Queued for processing'
+          };
+        } catch (err) {
+          return {
+            index,
+            success: false,
+            status: 'error',
+            message: err instanceof Error ? err.message : 'Unknown error occurred'
+          };
+        }
+      });
+      
+      // Wait for all uploads to complete
+      const results = await Promise.all(uploadPromises);
+      
+      // Update statuses based on results
+      setUploadStatuses(prev => 
+        prev.map((status, index) => {
+          const result = results.find(r => r.index === index);
+          return {
+            ...status,
+            status: result?.success ? 'success' : 'error',
+            message: result?.message || 'Unknown status'
+          };
+        })
+      );
+
+      const errors = results.filter(r => !r.success);
+      if (errors.length > 0) {
+        setError({
+          message: errors.length === 1 ? 'Video file failed to process' : 'Some video files failed to process',
+          details: errors.map(e => e.message).join('\n')
+        });
+        
+        // Only navigate if there are no errors or some files succeeded
+        if (results.some(r => r.success)) {
           setTimeout(() => {
             navigate('/library');
           }, 3000);
@@ -468,6 +628,7 @@ export default function Upload() {
             {[
               { id: 'youtube', name: 'YouTube', icon: Youtube },
               { id: 'file', name: 'File Upload', icon: FileText },
+              { id: 'videofile', name: 'Video Upload', icon: Video },
               { id: 'webpage', name: 'Website', icon: LinkIcon },
             ].map((tab) => (
               <button
@@ -571,6 +732,89 @@ export default function Upload() {
                             }`}>
                               {status.status === 'uploading' && `Uploading... ${status.progress}%`}
                               {status.status === 'success' && 'Successfully uploaded'}
+                              {status.status === 'error' && (status.message || 'Upload failed')}
+                              {status.status === 'pending' && 'Waiting to upload...'}
+                            </p>
+                          </div>
+                        </div>
+                        {status.status === 'uploading' && (
+                          <div className="w-24 bg-gray-200 rounded-full h-2.5">
+                            <div 
+                              className="bg-purple-600 h-2.5 rounded-full transition-all duration-300" 
+                              style={{ width: `${status.progress}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : activeTab === 'videofile' ? (
+            <div className="space-y-4">
+              <div className="mb-4 bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded-md">
+                <div className="flex items-start">
+                  <Info className="h-5 w-5 mr-2 mt-0.5" />
+                  <div>
+                    <p className="font-medium">Supported Video & Audio Formats</p>
+                    <ul className="text-sm mt-1 list-disc list-inside">
+                      <li>Video: MP4, WEBM (up to 1080p)</li>
+                      <li>Audio: OPUS, M4A, MP3</li>
+                    </ul>
+                    <p className="text-sm mt-2 italic">Files will be securely uploaded to our storage and queued for transcription processing. You'll be notified when processing is complete.</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex justify-center">
+                <div className="w-full max-w-lg">
+                  <label className={`flex flex-col items-center px-4 py-6 border-2 border-dashed rounded-lg cursor-pointer transition-colors duration-200 
+                    ${loading ? 'opacity-50 cursor-not-allowed' : 'hover:border-purple-500'}`}>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept={acceptedVideoTypes}
+                      multiple
+                      onChange={(e) => e.target.files && handleVideoFileUpload(e.target.files)}
+                      disabled={loading}
+                    />
+                    <UploadIcon className="h-12 w-12 text-gray-400" />
+                    <span className="mt-2 text-base text-gray-600">
+                      Drop your video files here or click to browse
+                    </span>
+                    <span className="mt-1 text-sm text-gray-500">
+                      MP4, WEBM, OPUS, M4A, MP3 formats supported
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Upload Status List */}
+              {uploadStatuses.length > 0 && (
+                <div className="space-y-2 mt-4">
+                  <h3 className="text-sm font-medium text-gray-700">Upload Status</h3>
+                  {uploadStatuses.map((status, index) => (
+                    <div key={index} className={`bg-white rounded-lg border p-4 ${
+                      status.status === 'error' ? 'border-red-200' : 
+                      status.status === 'success' ? 'border-green-200' : 'border-gray-200'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <div className="flex-shrink-0">
+                            {status.status === 'success' && <CheckCircle className="h-5 w-5 text-green-500" />}
+                            {status.status === 'error' && <XCircle className="h-5 w-5 text-red-500" />}
+                            {(status.status === 'pending' || status.status === 'uploading') && 
+                              <Loader2 className="h-5 w-5 text-purple-500 animate-spin" />}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">{status.file.name}</p>
+                            <p className={`text-xs ${
+                              status.status === 'error' ? 'text-red-600' : 
+                              status.status === 'success' ? 'text-green-600' : 'text-gray-500'
+                            }`}>
+                              {status.status === 'uploading' && `Uploading... ${status.progress}%`}
+                              {status.status === 'success' && (status.message || 'Successfully uploaded')}
                               {status.status === 'error' && (status.message || 'Upload failed')}
                               {status.status === 'pending' && 'Waiting to upload...'}
                             </p>
