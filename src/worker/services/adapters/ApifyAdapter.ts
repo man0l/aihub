@@ -119,7 +119,7 @@ export class ApifyAdapter implements VideoDownloader {
         s3Bucket: bucketName,
         s3Region: storageConfig.region,
         s3SecretAccessKey: storageConfig.secretAccessKey,
-        filenameTemplateParts: ["uploader", "timestamp", "title"],
+        filenameTemplateParts: ["uploader", "timestamp"],
         videos: [
           {
             url: videoUrl,
