@@ -30,7 +30,10 @@ export class VideoDownloaderFactory {
       apiHost: this.configService.oxylabsApiHost,
       userId: this.options.userId
     }));
-    this.downloaders.set('apify', new ApifyAdapter(this.configService));
+    this.downloaders.set('apify', new ApifyAdapter(this.configService, {
+      apifyApiToken: this.configService.apifyApiToken,
+      userId: this.options.userId
+    }));
   }
 
   public static getInstance(options: DownloaderOptions = {}): VideoDownloaderFactory {
