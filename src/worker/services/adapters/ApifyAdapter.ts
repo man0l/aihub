@@ -26,6 +26,7 @@ interface ApifyTaskInput {
   s3Bucket: string;
   s3Region: string;
   s3SecretAccessKey: string;
+  filenameTemplateParts: string[];
   videos: ApifyVideoInput[];
   [key: string]: any; // Add index signature for Dictionary compatibility
 }
@@ -118,6 +119,7 @@ export class ApifyAdapter implements VideoDownloader {
         s3Bucket: bucketName,
         s3Region: storageConfig.region,
         s3SecretAccessKey: storageConfig.secretAccessKey,
+        filenameTemplateParts: ["uploader", "timestamp", "title"],
         videos: [
           {
             url: videoUrl,
