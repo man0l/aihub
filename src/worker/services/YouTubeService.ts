@@ -22,7 +22,7 @@ export class YouTubeService {
   constructor(
     configService: ConfigService, 
     axiosClient: AxiosInstance,
-    downloaderType: DownloaderType = 'oxylabs',
+    downloaderType: DownloaderType = 'apify',
     private readonly userId?: string
   ) {
     this.config = configService;
@@ -99,23 +99,15 @@ export class YouTubeService {
       });
       
       // Handle different downloader types
-      if (this.downloaderType === 'oxylabs') {
-        // For Oxylabs, the file is uploaded directly to S3
+      if (this.downloaderType === 'oxylabs' || this.downloaderType === 'apify') {
+        // For Oxylabs and Apify, the file is uploaded directly to S3
         // Create a placeholder file so the pipeline can continue
-        console.log(`Oxylabs has uploaded the file to S3. Creating placeholder file for pipeline continuity.`);
+        const serviceName = this.downloaderType === 'oxylabs' ? 'Oxylabs' : 'Apify';
+        console.log(`${serviceName} has uploaded the file to S3. Creating placeholder file for pipeline continuity.`);
         this.createPlaceholderAudio(outputFilePath);
         tempFilePath = null; // Clear tempFilePath since we don't have one
         
-        console.log(`Successfully submitted video ${videoId} to Oxylabs for S3 upload`);
-        return outputFilePath;
-      } else if (this.downloaderType === 'apify') {
-        // For Apify, the file is uploaded directly to S3
-        // Create a placeholder file so the pipeline can continue
-        console.log(`Apify has uploaded the file to S3. Creating placeholder file for pipeline continuity.`);
-        this.createPlaceholderAudio(outputFilePath);
-        tempFilePath = null; // Clear tempFilePath since we don't have one
-        
-        console.log(`Successfully submitted video ${videoId} to Apify for S3 upload`);
+        console.log(`Successfully submitted video ${videoId} to ${serviceName} for S3 upload`);
         return outputFilePath;
       } else {
         // For other downloaders (yt-dlp, etc.), verify the temporary file exists and has content

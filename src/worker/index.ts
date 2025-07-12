@@ -688,7 +688,7 @@ class VideoProcessor {
       this.youtubeService = new YouTubeService(
         this.config, 
         this.youtubeService['axiosClient'], 
-        'oxylabs',
+        'apify',
         userId
       );
 
@@ -704,13 +704,11 @@ class VideoProcessor {
           const audioFilePath = await this.youtubeService.downloadVideo(videoId);
           console.log(`Video downloaded to ${audioFilePath}`);
           
-          // For Oxylabs, the file is already uploaded to S3, so skip the upload step
+          // For Oxylabs and Apify, the file is already uploaded to S3, so skip the upload step
           // For other downloaders, upload the local file to S3
-          if (this.youtubeService['downloaderType'] === 'oxylabs') {
-            console.log(`Oxylabs has already uploaded the file to S3, skipping local file upload`);
-            // The file is already at: raw-media/${userId}/${videoId}/ on S3
-          } else if (this.youtubeService['downloaderType'] === 'apify') {
-            console.log(`Apify has already uploaded the file to S3, skipping local file upload`);
+          if (this.youtubeService['downloaderType'] === 'oxylabs' || this.youtubeService['downloaderType'] === 'apify') {
+            const serviceName = this.youtubeService['downloaderType'] === 'oxylabs' ? 'Oxylabs' : 'Apify';
+            console.log(`${serviceName} has already uploaded the file to S3, skipping local file upload`);
             // The file is already at: raw-media/${userId}/${videoId}/ on S3
           } else {
             // Upload to S3 with the same extension as the downloaded file
