@@ -172,7 +172,9 @@ export class ApifyAdapter implements VideoDownloader {
     // Check if bucket name has double prefix (e.g., "bobi-transcribe-demo-bobi-transcribe-demo-raw-media-input")
     if (projectPrefix && bucketName.includes(`${projectPrefix}-${projectPrefix}`)) {
       console.log(`Detected double prefix in bucket name: ${bucketName}`);
-      // Use the bucket name as-is since it already has the double prefix
+      // Fix the double prefix by replacing it with a single prefix
+      bucketName = bucketName.replace(`${projectPrefix}-${projectPrefix}`, projectPrefix);
+      console.log(`Fixed bucket name: ${bucketName}`);
     }
     
     return `${bucketName}/${s3Path}`;
