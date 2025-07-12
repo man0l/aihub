@@ -34,6 +34,7 @@
     "@types/multer": "^1.4.12",
     "@types/uuid": "^10.0.0",
     "@vercel/node": "^3.0.17",
+    "apify-client": "^2.12.6",
     "axios": "^1.8.4",
     "busboy": "^1.6.0",
     "canvas": "^3.1.0",

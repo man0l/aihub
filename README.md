@@ -77,6 +77,9 @@ PROCESSED_TRANSCRIPTS_BUCKET=${PROJECT_PREFIX}-processed-transcripts-output
 # YouTube Configuration
 VITE_YOUTUBE_API_KEY=your_youtube_api_key
 
+# Apify Configuration
+APIFY_API_TOKEN=your_apify_api_token
+
 # OpenAI Configuration
 VITE_OPENAI_API_KEY=your_openai_api_key
 ```

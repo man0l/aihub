@@ -2,10 +2,11 @@ import { VideoDownloader } from '../interfaces/VideoServices.js';
 import { YtdlAdapter } from './YtdlAdapter.js';
 import { YtDlpVideoDownloaderAdapter } from './YtDlpVideoDownloaderAdapter.js';
 import { OxylabsAdapter } from './OxylabsAdapter.js';
+import { ApifyAdapter } from './ApifyAdapter.js';
 import { DownloaderOptions } from '../interfaces/VideoServices.js';
 import { ConfigService } from '../ConfigService.js';
 
-export type DownloaderType = 'ytdl' | 'yt-dlp' | 'oxylabs';
+export type DownloaderType = 'ytdl' | 'yt-dlp' | 'oxylabs' | 'apify';
 
 export class VideoDownloaderFactory {
   private static instance: VideoDownloaderFactory;
@@ -29,6 +30,7 @@ export class VideoDownloaderFactory {
       apiHost: this.configService.oxylabsApiHost,
       userId: this.options.userId
     }));
+    this.downloaders.set('apify', new ApifyAdapter(this.configService));
   }
 
   public static getInstance(options: DownloaderOptions = {}): VideoDownloaderFactory {

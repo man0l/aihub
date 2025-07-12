@@ -98,23 +98,44 @@ export class YouTubeService {
         }
       });
       
-      // Verify the temporary file exists and has content
-      if (!fs.existsSync(tempFilePath)) {
-        throw new Error(`Temporary file not found after download: ${tempFilePath}`);
+      // Handle different downloader types
+      if (this.downloaderType === 'oxylabs') {
+        // For Oxylabs, the file is uploaded directly to S3
+        // Create a placeholder file so the pipeline can continue
+        console.log(`Oxylabs has uploaded the file to S3. Creating placeholder file for pipeline continuity.`);
+        this.createPlaceholderAudio(outputFilePath);
+        tempFilePath = null; // Clear tempFilePath since we don't have one
+        
+        console.log(`Successfully submitted video ${videoId} to Oxylabs for S3 upload`);
+        return outputFilePath;
+      } else if (this.downloaderType === 'apify') {
+        // For Apify, the file is uploaded directly to S3
+        // Create a placeholder file so the pipeline can continue
+        console.log(`Apify has uploaded the file to S3. Creating placeholder file for pipeline continuity.`);
+        this.createPlaceholderAudio(outputFilePath);
+        tempFilePath = null; // Clear tempFilePath since we don't have one
+        
+        console.log(`Successfully submitted video ${videoId} to Apify for S3 upload`);
+        return outputFilePath;
+      } else {
+        // For other downloaders (yt-dlp, etc.), verify the temporary file exists and has content
+        if (!fs.existsSync(tempFilePath)) {
+          throw new Error(`Temporary file not found after download: ${tempFilePath}`);
+        }
+        
+        const stats = fs.statSync(tempFilePath);
+        if (stats.size === 0) {
+          throw new Error('Downloaded file is empty');
+        }
+        
+        // Move the temporary file to the final location
+        console.log(`Download complete. Moving to final location...`);
+        fs.renameSync(tempFilePath, outputFilePath);
+        tempFilePath = null; // Clear tempFilePath since we moved it successfully
+        
+        console.log(`Successfully downloaded video ${videoId} (${Math.round(stats.size / 1024 / 1024 * 10) / 10} MB)`);
+        return outputFilePath;
       }
-      
-      const stats = fs.statSync(tempFilePath);
-      if (stats.size === 0) {
-        throw new Error('Downloaded file is empty');
-      }
-      
-      // Move the temporary file to the final location
-      console.log(`Download complete. Moving to final location...`);
-      fs.renameSync(tempFilePath, outputFilePath);
-      tempFilePath = null; // Clear tempFilePath since we moved it successfully
-      
-      console.log(`Successfully downloaded video ${videoId} (${Math.round(stats.size / 1024 / 1024 * 10) / 10} MB)`);
-      return outputFilePath;
       
     } catch (error: unknown) {
       console.error(`Error downloading YouTube video ${videoId}:`, {

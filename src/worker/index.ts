@@ -704,11 +704,21 @@ class VideoProcessor {
           const audioFilePath = await this.youtubeService.downloadVideo(videoId);
           console.log(`Video downloaded to ${audioFilePath}`);
           
-          // Upload to S3 with the same extension as the downloaded file
-          const fileExtension = path.extname(audioFilePath); // Get the file extension including the dot
-          const s3Key = `raw-media/${userId}/${videoId}${fileExtension}`;
-          await this.storageService.uploadFile(audioFilePath, s3Key);
-          console.log(`Audio uploaded to S3: ${s3Key}`);
+          // For Oxylabs, the file is already uploaded to S3, so skip the upload step
+          // For other downloaders, upload the local file to S3
+          if (this.youtubeService['downloaderType'] === 'oxylabs') {
+            console.log(`Oxylabs has already uploaded the file to S3, skipping local file upload`);
+            // The file is already at: raw-media/${userId}/${videoId}/ on S3
+          } else if (this.youtubeService['downloaderType'] === 'apify') {
+            console.log(`Apify has already uploaded the file to S3, skipping local file upload`);
+            // The file is already at: raw-media/${userId}/${videoId}/ on S3
+          } else {
+            // Upload to S3 with the same extension as the downloaded file
+            const fileExtension = path.extname(audioFilePath); // Get the file extension including the dot
+            const s3Key = `raw-media/${userId}/${videoId}${fileExtension}`;
+            await this.storageService.uploadFile(audioFilePath, s3Key);
+            console.log(`Audio uploaded to S3: ${s3Key}`);
+          }
           
           // Clean up the temporary file
           this.config.cleanupTempFiles(audioFilePath);
@@ -1066,7 +1076,7 @@ class Application {
       }
     });
     
-    this.youtubeService = new YouTubeService(this.configService, axiosClient, 'oxylabs');
+    this.youtubeService = new YouTubeService(this.configService, axiosClient, 'apify');
     this.databaseService = new DatabaseService(this.supabaseClient);
     
     // Create processors

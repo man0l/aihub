@@ -18,6 +18,7 @@ export class ConfigService {
   // API keys
   openaiApiKey: string | undefined;
   youtubeApiKey: string;
+  apifyApiToken: string;
 
   // Oxylabs credentials
   oxylabsUsername: string;
@@ -42,6 +43,7 @@ export class ConfigService {
     // API keys
     this.openaiApiKey = process.env.VITE_OPENAI_API_KEY;
     this.youtubeApiKey = process.env.VITE_YOUTUBE_API_KEY || '';
+    this.apifyApiToken = process.env.APIFY_API_TOKEN || '';
     
     // Oxylabs credentials
     this.oxylabsUsername = process.env.OXYLABS_API_USER || '';
@@ -116,6 +118,7 @@ export class ConfigService {
       { name: 'AWS_ACCESS_KEY_ID', value: this.storageConfig.accessKeyId },
       { name: 'AWS_SECRET_ACCESS_KEY', value: this.storageConfig.secretAccessKey },
       { name: 'VITE_YOUTUBE_API_KEY', value: this.youtubeApiKey },
+      { name: 'APIFY_API_TOKEN', value: this.apifyApiToken },
       { name: 'PROJECT_PREFIX', value: this.storageServiceConfig.projectPrefix },
       { name: 'RAW_MEDIA_BUCKET', value: this.storageServiceConfig.buckets.rawMedia },
       { name: 'PROCESSED_TRANSCRIPTS_BUCKET', value: this.storageServiceConfig.buckets.processedTranscripts },
