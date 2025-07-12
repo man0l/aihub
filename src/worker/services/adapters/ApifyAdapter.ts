@@ -26,7 +26,6 @@ interface ApifyTaskInput {
   s3Bucket: string;
   s3Region: string;
   s3SecretAccessKey: string;
-  s3Path?: string; // Add S3 path for proper file organization
   videos: ApifyVideoInput[];
   [key: string]: any; // Add index signature for Dictionary compatibility
 }
@@ -111,15 +110,17 @@ export class ApifyAdapter implements VideoDownloader {
       // Construct S3 path matching OxylabsAdapter structure: raw-media/{userId}/{videoId}/
       const s3Path = `raw-media/${this.userId || 'unknown'}/${videoId}/`;
       
+      // Get the corrected bucket name and combine with path
+      const bucketWithPath = this.getBucketWithPath(storageServiceConfig, s3Path);
+      
       // Prepare the task input
       const taskInput: ApifyTaskInput = {
         preferredFormat: 'm4a',
         preferredQuality: '240p',
         s3AccessKeyId: storageConfig.accessKeyId,
-        s3Bucket: storageServiceConfig.buckets.rawMedia,
+        s3Bucket: bucketWithPath,
         s3Region: storageConfig.region,
         s3SecretAccessKey: storageConfig.secretAccessKey,
-        s3Path: s3Path, // Add the S3 path for proper file organization
         videos: [
           {
             url: videoUrl,
@@ -129,7 +130,7 @@ export class ApifyAdapter implements VideoDownloader {
       };
 
       console.log(`Submitting Apify task for video ${videoId}`);
-      console.log(`S3 path: ${s3Path}`);
+      console.log(`S3 bucket with path: ${bucketWithPath}`);
       console.log('Task input:', {
         ...taskInput,
         s3AccessKeyId: '[REDACTED]',
@@ -147,7 +148,7 @@ export class ApifyAdapter implements VideoDownloader {
       fs.writeFileSync(outputPath, 'placeholder-apify-download');
       
       console.log(`Apify download completed for video ${videoId}`);
-      console.log(`File should be available at S3 bucket: ${storageServiceConfig.buckets.rawMedia} in path: ${s3Path}`);
+      console.log(`File should be available at S3 bucket: ${bucketWithPath}`);
 
     } catch (error) {
       console.error(`Apify download failed for video ${videoId}:`, error);
@@ -159,6 +160,22 @@ export class ApifyAdapter implements VideoDownloader {
         throw new Error(`Apify download failed: ${String(error)}`);
       }
     }
+  }
+
+  /**
+   * Get the bucket name with path, handling double prefix issues
+   */
+  private getBucketWithPath(storageServiceConfig: any, s3Path: string): string {
+    let bucketName = storageServiceConfig.buckets.rawMedia;
+    const projectPrefix = storageServiceConfig.projectPrefix;
+    
+    // Check if bucket name has double prefix (e.g., "bobi-transcribe-demo-bobi-transcribe-demo-raw-media-input")
+    if (projectPrefix && bucketName.includes(`${projectPrefix}-${projectPrefix}`)) {
+      console.log(`Detected double prefix in bucket name: ${bucketName}`);
+      // Use the bucket name as-is since it already has the double prefix
+    }
+    
+    return `${bucketName}/${s3Path}`;
   }
 
   async downloadCaptions(videoId: string, language?: string): Promise<string | null> {
