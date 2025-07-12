@@ -1,7 +1,18 @@
 import { ApifyClient } from 'apify-client';
 import { ConfigService } from '../ConfigService.js';
-import { VideoDownloader, VideoFormat, VideoInfo, DownloadProgress } from '../interfaces/VideoServices.js';
+import { 
+  VideoDownloader, 
+  VideoFormat, 
+  VideoInfo, 
+  DownloadProgress,
+  DownloaderOptions 
+} from '../interfaces/VideoServices.js';
 import fs from 'fs';
+
+export interface ApifyOptions extends DownloaderOptions {
+  apifyApiToken: string;
+  taskId?: string;
+}
 
 interface ApifyVideoInput {
   url: string;
@@ -15,6 +26,7 @@ interface ApifyTaskInput {
   s3Bucket: string;
   s3Region: string;
   s3SecretAccessKey: string;
+  s3Path?: string; // Add S3 path for proper file organization
   videos: ApifyVideoInput[];
   [key: string]: any; // Add index signature for Dictionary compatibility
 }
@@ -29,13 +41,17 @@ export class ApifyAdapter implements VideoDownloader {
   private client: ApifyClient;
   private config: ConfigService;
   private taskId: string;
+  private readonly userId?: string;
 
-  constructor(config: ConfigService) {
+  constructor(config: ConfigService, options: ApifyOptions) {
     this.config = config;
+    this.userId = options.userId;
     this.client = new ApifyClient({
-      token: config.apifyApiToken
+      token: options.apifyApiToken
     });
-    this.taskId = 'wowC9hvZlDxfm4Cfy';
+    this.taskId = options.taskId || 'wowC9hvZlDxfm4Cfy';
+    
+    console.log(`ApifyAdapter initialized with userId: ${this.userId || 'none'}, taskId: ${this.taskId}`);
   }
 
   async getInfo(videoUrl: string): Promise<VideoInfo> {
@@ -92,6 +108,9 @@ export class ApifyAdapter implements VideoDownloader {
       const storageConfig = this.config.getStorageConfig();
       const storageServiceConfig = this.config.getStorageServiceConfig();
       
+      // Construct S3 path matching OxylabsAdapter structure: raw-media/{userId}/{videoId}/
+      const s3Path = `raw-media/${this.userId || 'unknown'}/${videoId}/`;
+      
       // Prepare the task input
       const taskInput: ApifyTaskInput = {
         preferredFormat: 'm4a',
@@ -100,6 +119,7 @@ export class ApifyAdapter implements VideoDownloader {
         s3Bucket: storageServiceConfig.buckets.rawMedia,
         s3Region: storageConfig.region,
         s3SecretAccessKey: storageConfig.secretAccessKey,
+        s3Path: s3Path, // Add the S3 path for proper file organization
         videos: [
           {
             url: videoUrl,
@@ -109,6 +129,7 @@ export class ApifyAdapter implements VideoDownloader {
       };
 
       console.log(`Submitting Apify task for video ${videoId}`);
+      console.log(`S3 path: ${s3Path}`);
       console.log('Task input:', {
         ...taskInput,
         s3AccessKeyId: '[REDACTED]',
@@ -126,7 +147,7 @@ export class ApifyAdapter implements VideoDownloader {
       fs.writeFileSync(outputPath, 'placeholder-apify-download');
       
       console.log(`Apify download completed for video ${videoId}`);
-      console.log(`File should be available at S3 bucket: ${storageServiceConfig.buckets.rawMedia}`);
+      console.log(`File should be available at S3 bucket: ${storageServiceConfig.buckets.rawMedia} in path: ${s3Path}`);
 
     } catch (error) {
       console.error(`Apify download failed for video ${videoId}:`, error);
